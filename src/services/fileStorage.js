@@ -89,18 +89,18 @@ export async function uploadFileFromURL(url) {
 }
 
 /**
- * Save file metadata (after parsing to GeoJSON)
- * Note: The file is already saved on server, this just stores the GeoJSON in localStorage
- * for quick access. The actual file remains on the server.
+ * Save file metadata (lightweight, without GeoJSON)
+ * Note: GeoJSON is NOT stored in localStorage to avoid quota issues.
+ * Files are fetched and parsed from the server when needed.
  */
 export function saveFileMetadata(fileData) {
   try {
     const STORAGE_KEY = 'kmlFileMetadata';
     const metadata = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    // Only store lightweight metadata, NOT the GeoJSON
     metadata[fileData.id] = {
       id: fileData.id,
       name: fileData.name,
-      geoJson: fileData.geoJson,
       visible: fileData.visible !== undefined ? fileData.visible : true,
       uploadedAt: fileData.uploadedAt || new Date().toISOString(),
       sourceUrl: fileData.sourceUrl || null,
@@ -108,13 +108,73 @@ export function saveFileMetadata(fileData) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(metadata));
     return metadata[fileData.id];
   } catch (error) {
+    // Handle quota exceeded error
+    if (error.name === 'QuotaExceededError' || error.message.includes('quota')) {
+      console.warn('localStorage quota exceeded. Clearing old entries...');
+      // Try to clear old entries and retry
+      clearOldMetadata();
+      try {
+        const metadata = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+        metadata[fileData.id] = {
+          id: fileData.id,
+          name: fileData.name,
+          visible: fileData.visible !== undefined ? fileData.visible : true,
+          uploadedAt: fileData.uploadedAt || new Date().toISOString(),
+          sourceUrl: fileData.sourceUrl || null,
+        };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(metadata));
+        return metadata[fileData.id];
+      } catch (retryError) {
+        console.error('Error saving file metadata after cleanup:', retryError);
+        // If still failing, just return the data without saving
+        return {
+          id: fileData.id,
+          name: fileData.name,
+          visible: fileData.visible !== undefined ? fileData.visible : true,
+          uploadedAt: fileData.uploadedAt || new Date().toISOString(),
+          sourceUrl: fileData.sourceUrl || null,
+        };
+      }
+    }
     console.error('Error saving file metadata:', error);
     throw error;
   }
 }
 
 /**
- * Get file metadata (GeoJSON) from localStorage
+ * Clear old metadata entries to free up space
+ */
+function clearOldMetadata() {
+  try {
+    const STORAGE_KEY = 'kmlFileMetadata';
+    const metadata = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    
+    // Sort by uploadedAt and keep only the 50 most recent entries
+    const entries = Object.entries(metadata);
+    entries.sort((a, b) => {
+      const dateA = new Date(a[1].uploadedAt || 0);
+      const dateB = new Date(b[1].uploadedAt || 0);
+      return dateB - dateA;
+    });
+    
+    const recentEntries = entries.slice(0, 50);
+    const cleanedMetadata = Object.fromEntries(recentEntries);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(cleanedMetadata));
+  } catch (error) {
+    console.error('Error clearing old metadata:', error);
+    // If cleanup fails, clear everything
+    try {
+      localStorage.removeItem('kmlFileMetadata');
+    } catch (e) {
+      console.error('Error removing metadata:', e);
+    }
+  }
+}
+
+/**
+ * Get file metadata (lightweight, without GeoJSON) from localStorage
+ * Note: GeoJSON is NOT stored in localStorage. Use downloadFile and parseKMLFile
+ * to get the GeoJSON when needed.
  */
 export function getFileMetadata(fileId) {
   try {
@@ -141,10 +201,15 @@ export async function deleteFile(fileId) {
     }
 
     // Also remove from localStorage metadata
-    const STORAGE_KEY = 'kmlFileMetadata';
-    const metadata = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-    delete metadata[fileId];
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(metadata));
+    try {
+      const STORAGE_KEY = 'kmlFileMetadata';
+      const metadata = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+      delete metadata[fileId];
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(metadata));
+    } catch (error) {
+      // Ignore localStorage errors during deletion
+      console.warn('Error removing metadata from localStorage:', error);
+    }
 
     return true;
   } catch (error) {
@@ -171,11 +236,16 @@ export async function updateFileVisibility(fileId, visible) {
     }
 
     // Also update localStorage metadata
-    const STORAGE_KEY = 'kmlFileMetadata';
-    const metadata = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-    if (metadata[fileId]) {
-      metadata[fileId].visible = visible;
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(metadata));
+    try {
+      const STORAGE_KEY = 'kmlFileMetadata';
+      const metadata = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+      if (metadata[fileId]) {
+        metadata[fileId].visible = visible;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(metadata));
+      }
+    } catch (error) {
+      // Ignore localStorage errors during update
+      console.warn('Error updating metadata in localStorage:', error);
     }
 
     return true;
@@ -214,6 +284,64 @@ export async function downloadFile(fileId) {
   } catch (error) {
     console.error('Error downloading file:', error);
     throw error;
+  }
+}
+
+/**
+ * Clear all file metadata from localStorage
+ * Useful for fixing quota exceeded errors
+ */
+export function clearAllFileMetadata() {
+  try {
+    localStorage.removeItem('kmlFileMetadata');
+    console.log('All file metadata cleared from localStorage');
+    return true;
+  } catch (error) {
+    console.error('Error clearing file metadata:', error);
+    return false;
+  }
+}
+
+/**
+ * Migrate existing localStorage data to remove GeoJSON
+ * This should be called once on app startup to clean up old data
+ */
+export function migrateFileMetadata() {
+  try {
+    const STORAGE_KEY = 'kmlFileMetadata';
+    const metadata = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    let hasChanges = false;
+    
+    // Remove GeoJSON from all entries
+    for (const [fileId, fileData] of Object.entries(metadata)) {
+      if (fileData && fileData.geoJson) {
+        // Keep only lightweight metadata
+        metadata[fileId] = {
+          id: fileData.id,
+          name: fileData.name,
+          visible: fileData.visible !== undefined ? fileData.visible : true,
+          uploadedAt: fileData.uploadedAt || new Date().toISOString(),
+          sourceUrl: fileData.sourceUrl || null,
+        };
+        hasChanges = true;
+      }
+    }
+    
+    if (hasChanges) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(metadata));
+      console.log('Migrated file metadata: removed GeoJSON from localStorage');
+    }
+    
+    return hasChanges;
+  } catch (error) {
+    console.error('Error migrating file metadata:', error);
+    // If migration fails, try to clear everything
+    try {
+      localStorage.removeItem('kmlFileMetadata');
+    } catch (e) {
+      console.error('Error removing metadata during migration:', e);
+    }
+    return false;
   }
 }
 

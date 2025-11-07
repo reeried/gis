@@ -10,7 +10,7 @@ import AdminDashboard from './components/AdminDashboard';
 import RiverMap from './components/RiverMap';
 import RiverData from './components/RiverData';
 import ConditionPhotos from './components/ConditionPhotos';
-import { getAllFiles, getFileMetadata, downloadFile } from './services/fileStorage';
+import { getAllFiles, getFileMetadata, downloadFile, migrateFileMetadata } from './services/fileStorage';
 import { parseKMLFile } from './utils/kmlParser';
 
 function App() {
@@ -21,6 +21,11 @@ function App() {
   const [showDistrictBoundaries, setShowDistrictBoundaries] = useState(false);
   const [districtBoundariesData, setDistrictBoundariesData] = useState(null);
   const [activePage, setActivePage] = useState('BERANDA');
+
+  // Migrate localStorage data on mount (remove GeoJSON to fix quota issues)
+  useEffect(() => {
+    migrateFileMetadata();
+  }, []);
 
   // Load uploaded files from storage on mount
   useEffect(() => {
@@ -45,46 +50,38 @@ function App() {
       const serverFiles = await getAllFiles();
       
       // Load layers with GeoJSON data
+      // Note: GeoJSON is NOT stored in localStorage to avoid quota issues
+      // We always fetch and parse files from the server when needed
       const loadedLayers = await Promise.all(
         serverFiles
           .filter(file => file.visible) // Only load visible files
           .map(async (file) => {
-            // Try to get metadata from localStorage first
-            let metadata = getFileMetadata(file.id);
-            
-            // If no metadata, download and parse the file
-            if (!metadata || !metadata.geoJson) {
-              try {
-                const blob = await downloadFile(file.id);
-                const fileObj = new File([blob], file.name, { type: blob.type });
-                const geoJson = await parseKMLFile(fileObj);
-                
-                // Save metadata for future use
-                metadata = {
-                  id: file.id,
-                  name: file.name,
-                  geoJson: geoJson,
-                  visible: file.visible,
-                  uploadedAt: file.uploadedAt,
-                  sourceUrl: file.sourceUrl || null,
-                };
-                
-                const { saveFileMetadata } = await import('./services/fileStorage');
-                saveFileMetadata(metadata);
-              } catch (err) {
-                console.error(`Error loading file ${file.id}:`, err);
-                return null;
-              }
+            try {
+              // Always download and parse the file from server
+              const blob = await downloadFile(file.id);
+              const fileObj = new File([blob], file.name, { type: blob.type });
+              const geoJson = await parseKMLFile(fileObj);
+              
+              // Save lightweight metadata (without GeoJSON) for future reference
+              const { saveFileMetadata } = await import('./services/fileStorage');
+              saveFileMetadata({
+                id: file.id,
+                name: file.name,
+                visible: file.visible,
+                uploadedAt: file.uploadedAt,
+                sourceUrl: file.sourceUrl || null,
+              });
+              
+              return {
+                id: file.id,
+                name: file.name,
+                geoJson: geoJson,
+                visible: file.visible,
+              };
+            } catch (err) {
+              console.error(`Error loading file ${file.id}:`, err);
+              return null;
             }
-            
-            if (!metadata) return null;
-            
-            return {
-              id: metadata.id,
-              name: metadata.name,
-              geoJson: metadata.geoJson,
-              visible: metadata.visible,
-            };
           })
       );
       

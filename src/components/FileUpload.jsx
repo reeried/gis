@@ -32,7 +32,7 @@ export default function FileUpload({ onFileUpload }) {
         featureCount: geoJson.features?.length || 0
       });
       
-      // Step 3: Save metadata with GeoJSON
+      // Step 3: Save lightweight metadata (without GeoJSON to avoid quota issues)
       const fileData = {
         id: serverFile.id,
         name: serverFile.name,
@@ -42,9 +42,16 @@ export default function FileUpload({ onFileUpload }) {
         sourceUrl: serverFile.sourceUrl || null,
       };
       
-      saveFileMetadata(fileData);
+      // Save only lightweight metadata (GeoJSON is not stored in localStorage)
+      saveFileMetadata({
+        id: serverFile.id,
+        name: serverFile.name,
+        visible: true,
+        uploadedAt: serverFile.uploadedAt,
+        sourceUrl: serverFile.sourceUrl || null,
+      });
       
-      // Step 4: Notify parent component
+      // Step 4: Notify parent component (with GeoJSON for immediate use)
       onFileUpload(fileData);
     } catch (err) {
       console.error('File upload error:', err);
@@ -126,7 +133,7 @@ export default function FileUpload({ onFileUpload }) {
         featureCount: geoJson.features?.length || 0
       });
       
-      // Step 3: Save metadata with GeoJSON
+      // Step 3: Save lightweight metadata (without GeoJSON to avoid quota issues)
       const fileData = {
         id: serverFile.id,
         name: serverFile.name,
@@ -136,9 +143,16 @@ export default function FileUpload({ onFileUpload }) {
         sourceUrl: urlInput,
       };
       
-      saveFileMetadata(fileData);
+      // Save only lightweight metadata (GeoJSON is not stored in localStorage)
+      saveFileMetadata({
+        id: serverFile.id,
+        name: serverFile.name,
+        visible: true,
+        uploadedAt: serverFile.uploadedAt,
+        sourceUrl: urlInput,
+      });
       
-      // Step 4: Notify parent component
+      // Step 4: Notify parent component (with GeoJSON for immediate use)
       onFileUpload(fileData);
       
       // Clear URL input after successful load

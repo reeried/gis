@@ -21,44 +21,38 @@ export default function AdminDashboard({ onBackToHome }) {
       const serverFiles = await getAllFiles();
       
       // Load metadata for each file
+      // Note: GeoJSON is NOT stored in localStorage to avoid quota issues
+      // We fetch and parse files from the server when needed
       const filesWithMetadata = await Promise.all(
         serverFiles.map(async (file) => {
-          // Try to get metadata from localStorage first
-          let metadata = getFileMetadata(file.id);
-          
-          // If no metadata, download and parse the file
-          if (!metadata || !metadata.geoJson) {
-            try {
-              const blob = await downloadFile(file.id);
-              const fileObj = new File([blob], file.name, { type: blob.type });
-              const geoJson = await parseKMLFile(fileObj);
-              
-              // Save metadata for future use
-              const { saveFileMetadata } = await import('../services/fileStorage');
-              metadata = {
-                id: file.id,
-                name: file.name,
-                geoJson: geoJson,
-                visible: file.visible,
-                uploadedAt: file.uploadedAt,
-                sourceUrl: file.sourceUrl || null,
-              };
-              
-              saveFileMetadata(metadata);
-            } catch (err) {
-              console.error(`Error loading file ${file.id}:`, err);
-              // Return file without GeoJSON if parsing fails
-              return {
-                ...file,
-                geoJson: null,
-              };
-            }
+          try {
+            // Always download and parse the file from server
+            const blob = await downloadFile(file.id);
+            const fileObj = new File([blob], file.name, { type: blob.type });
+            const geoJson = await parseKMLFile(fileObj);
+            
+            // Save lightweight metadata (without GeoJSON) for future reference
+            const { saveFileMetadata } = await import('../services/fileStorage');
+            saveFileMetadata({
+              id: file.id,
+              name: file.name,
+              visible: file.visible,
+              uploadedAt: file.uploadedAt,
+              sourceUrl: file.sourceUrl || null,
+            });
+            
+            return {
+              ...file,
+              geoJson: geoJson,
+            };
+          } catch (err) {
+            console.error(`Error loading file ${file.id}:`, err);
+            // Return file without GeoJSON if parsing fails
+            return {
+              ...file,
+              geoJson: null,
+            };
           }
-          
-          return {
-            ...file,
-            geoJson: metadata?.geoJson || null,
-          };
         })
       );
       
