@@ -23,7 +23,10 @@ dist-ssr
 *.sln
 *.sw?
 
-# Server uploads
-server/uploads/*
-!server/uploads/.gitkeep
+# Server uploads (in project root)
+uploads/*
+!uploads/.gitkeep
 
+# Vercel (not used for Hostinger deployment)
+.vercel
+vercel.json

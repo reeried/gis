@@ -1,0 +1,284 @@
+# Hostinger Deployment Guide
+
+This guide will help you deploy your GIS Viewer application to Hostinger hosting.
+
+## Prerequisites
+
+- Hostinger account with Node.js hosting support
+- Node.js 18+ installed locally (for testing)
+- Git installed (optional, for version control)
+- FTP/SFTP access or SSH access to your Hostinger account
+
+## Important Changes from Vercel
+
+### ✅ What's Different
+
+1. **File Upload Limits**: 
+   - Vercel: 4.5MB limit
+   - Hostinger: 500MB default (configurable via `MAX_FILE_SIZE` environment variable)
+
+2. **Storage**:
+   - Vercel: Ephemeral `/tmp` storage (files deleted after function execution)
+   - Hostinger: Persistent storage in `uploads/` directory (files persist permanently)
+
+3. **Architecture**:
+   - Vercel: Serverless functions in `api/` directory
+   - Hostinger: Express.js server in `server/index.js` (serves both API and frontend)
+
+4. **Deployment**:
+   - Vercel: Automatic deployments via Git
+   - Hostinger: Manual upload or Git deployment
+
+## Step-by-Step Deployment
+
+### Step 1: Prepare Your Project Locally
+
+1. **Build the frontend**:
+   ```bash
+   npm install
+   npm run build
+   ```
+
+2. **Test locally in production mode**:
+   
+   **On Linux/Mac:**
+   ```bash
+   npm start
+   ```
+   
+   **On Windows:**
+   ```bash
+   set NODE_ENV=production && node server/index.js
+   ```
+   Or use PowerShell:
+   ```powershell
+   $env:NODE_ENV="production"; node server/index.js
+   ```
+   
+   Visit `http://localhost:3001` to verify everything works.
+
+3. **Verify the build**:
+   - Check that `dist/` folder exists
+   - Check that `uploads/` folder exists (will be created automatically)
+
+### Step 2: Upload to Hostinger
+
+#### Option A: Using FTP/SFTP (Recommended for first deployment)
+
+1. **Connect to your Hostinger account** via FTP/SFTP client (FileZilla, WinSCP, etc.)
+
+2. **Navigate to your domain's public_html or Node.js app directory**
+
+3. **Upload all project files** EXCEPT:
+   - `node_modules/` (will be installed on server)
+   - `.git/` (if you have it)
+   - `dist/` (will be built on server, or upload it if you built locally)
+   - `uploads/` (will be created automatically)
+
+4. **Important files to upload**:
+   - All source files (`src/`, `server/`, `api/`, etc.)
+   - Configuration files (`package.json`, `vite.config.js`, etc.)
+   - `dist/` folder (if you built locally)
+
+#### Option B: Using Git (If Hostinger supports it)
+
+1. **Push your code to GitHub/GitLab**:
+   ```bash
+   git add .
+   git commit -m "Prepare for Hostinger deployment"
+   git push origin main
+   ```
+
+2. **In Hostinger control panel**, connect your Git repository
+
+3. **Set build command**: `npm run build`
+4. **Set start command**: `npm start`
+
+### Step 3: Configure Node.js on Hostinger
+
+1. **Set Node.js version** (in Hostinger control panel):
+   - Recommended: Node.js 18.x or 20.x
+
+2. **Set environment variables** (if available):
+   - `NODE_ENV=production`
+   - `PORT=3001` (or the port Hostinger assigns)
+   - `MAX_FILE_SIZE=500` (optional, for custom file size limit in MB)
+
+3. **Set start command**:
+   ```
+   npm start
+   ```
+
+4. **Set build command** (if deploying via Git):
+   ```
+   npm run build
+   ```
+
+### Step 4: Create Required Directories
+
+After deployment, ensure these directories exist (they should be created automatically, but verify):
+
+- `uploads/` - For storing uploaded KML files
+- `dist/` - For built frontend files (if not uploaded)
+
+If they don't exist, create them via FTP/SFTP or SSH:
+```bash
+mkdir -p uploads dist
+chmod 755 uploads dist
+```
+
+### Step 5: Install Dependencies
+
+Via SSH (if available):
+```bash
+cd /path/to/your/app
+npm install --production
+```
+
+Or via Hostinger control panel if it has a dependency installation feature.
+
+### Step 6: Start the Application
+
+The application should start automatically if you've configured the start command. Otherwise, start it manually via SSH:
+```bash
+npm start
+```
+
+### Step 7: Verify Deployment
+
+1. **Visit your domain** (e.g., `https://yourdomain.com`)
+2. **Test file upload**: Try uploading a small KML file
+3. **Check API health**: Visit `https://yourdomain.com/api/health`
+4. **Check server logs** in Hostinger control panel for any errors
+
+## Configuration
+
+### Environment Variables
+
+You can configure the application using environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NODE_ENV` | `development` | Set to `production` for production |
+| `PORT` | `3001` | Server port (Hostinger may assign this automatically) |
+| `MAX_FILE_SIZE` | `500` | Maximum file upload size in MB |
+
+### File Upload Limits
+
+- **Default**: 500MB per file
+- **Configurable**: Set `MAX_FILE_SIZE` environment variable (in MB)
+- **Example**: `MAX_FILE_SIZE=1000` for 1GB limit
+
+## Project Structure
+
+```
+GIS2/
+├── server/
+│   └── index.js          # Express server (serves API + frontend)
+├── src/                   # React frontend source
+├── dist/                  # Built frontend (generated by npm run build)
+├── uploads/               # Uploaded files storage (created automatically)
+│   ├── metadata.json     # File metadata
+│   └── *.kml, *.kmz     # Uploaded files
+├── api/                   # Vercel serverless functions (NOT USED on Hostinger)
+├── package.json
+└── vite.config.js
+```
+
+**Note**: The `api/` directory contains Vercel serverless functions and is NOT used on Hostinger. The Express server in `server/index.js` handles all API routes.
+
+## Troubleshooting
+
+### Application Won't Start
+
+1. **Check Node.js version**: Ensure Node.js 18+ is selected
+2. **Check logs**: Review error logs in Hostinger control panel
+3. **Verify dependencies**: Run `npm install` via SSH
+4. **Check port**: Ensure the PORT environment variable matches Hostinger's assigned port
+
+### File Uploads Fail
+
+1. **Check file size**: Ensure file is under the limit (default 500MB)
+2. **Check permissions**: Ensure `uploads/` directory is writable:
+   ```bash
+   chmod 755 uploads
+   ```
+3. **Check disk space**: Verify you have enough storage on Hostinger
+4. **Check logs**: Review server logs for specific error messages
+
+### Frontend Not Loading
+
+1. **Verify build**: Ensure `dist/` folder exists and contains built files
+2. **Rebuild**: Run `npm run build` if needed
+3. **Check static file serving**: Verify Express is serving `dist/` folder
+4. **Check routes**: Ensure all routes are properly configured
+
+### API Endpoints Not Working
+
+1. **Check CORS**: CORS is enabled by default, but verify if needed
+2. **Check routes**: Verify API routes are accessible at `/api/*`
+3. **Test health endpoint**: Visit `/api/health` to verify server is running
+
+### Files Not Persisting
+
+1. **Check uploads directory**: Ensure `uploads/` exists and is writable
+2. **Check metadata file**: Verify `uploads/metadata.json` is being created
+3. **Check permissions**: Ensure proper file permissions on uploads directory
+
+## Maintenance
+
+### Updating the Application
+
+1. **Upload new files** via FTP/SFTP or push via Git
+2. **Install dependencies**: `npm install` (if package.json changed)
+3. **Rebuild frontend**: `npm run build` (if frontend code changed)
+4. **Restart application**: Restart via Hostinger control panel or SSH
+
+### Backing Up Files
+
+Regularly backup:
+- `uploads/` directory (contains all uploaded KML files)
+- `uploads/metadata.json` (contains file metadata)
+
+### Monitoring
+
+- Check server logs regularly in Hostinger control panel
+- Monitor disk space usage
+- Monitor application uptime
+
+## Differences from Vercel
+
+| Feature | Vercel | Hostinger |
+|---------|--------|-----------|
+| File Size Limit | 4.5MB | 500MB (configurable) |
+| Storage | Ephemeral | Persistent |
+| Architecture | Serverless | Traditional Node.js |
+| Deployment | Git-based | FTP/Git |
+| Cost | Free tier available | Paid hosting |
+| Scaling | Automatic | Manual |
+
+## Support
+
+For Hostinger-specific issues:
+- [Hostinger Support](https://www.hostinger.com/contact)
+- [Hostinger Documentation](https://support.hostinger.com/)
+
+For application-specific issues:
+- Check server logs
+- Review this guide's troubleshooting section
+- Check Node.js and Express.js documentation
+
+## Next Steps
+
+After successful deployment:
+
+1. ✅ Test all features (upload, download, delete files)
+2. ✅ Configure custom domain (if needed)
+3. ✅ Set up SSL certificate (HTTPS)
+4. ✅ Configure backups for `uploads/` directory
+5. ✅ Monitor application performance
+
+---
+
+**Note**: This application is now configured for Hostinger and no longer uses Vercel-specific features. The `api/` directory and `vercel.json` are kept for reference but are not used in production on Hostinger.
+

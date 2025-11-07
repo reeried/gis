@@ -7,8 +7,10 @@
     "dev:server": "node server/index.js",
     "dev:all": "concurrently \"npm run dev:server\" \"npm run dev\"",
     "build": "vite build",
+    "build:prod": "npm run build && echo 'Frontend built successfully. Run npm start to start the server.'",
     "preview": "vite preview",
-    "start": "node server/index.js"
+    "start": "NODE_ENV=production node server/index.js",
+    "start:prod": "npm run build && NODE_ENV=production node server/index.js"
   },
   "dependencies": {
     "react": "^18.2.0",

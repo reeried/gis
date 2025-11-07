@@ -8,19 +8,35 @@ import cors from 'cors';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Get project root directory (one level up from server/)
+const PROJECT_ROOT = path.resolve(__dirname, '..');
+
 const app = express();
 const PORT = process.env.PORT || 3001;
+const NODE_ENV = process.env.NODE_ENV || 'development';
 
-// Create uploads directory if it doesn't exist
-const UPLOADS_DIR = path.join(__dirname, 'uploads');
+// Create uploads directory if it doesn't exist (in project root for persistence)
+const UPLOADS_DIR = path.join(PROJECT_ROOT, 'uploads');
 if (!fs.existsSync(UPLOADS_DIR)) {
   fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 }
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '500mb' })); // Increase body parser limit for large files
+app.use(express.urlencoded({ extended: true, limit: '500mb' }));
 app.use('/uploads', express.static(UPLOADS_DIR));
+
+// Serve static files from dist folder in production
+if (NODE_ENV === 'production') {
+  const distPath = path.join(PROJECT_ROOT, 'dist');
+  if (fs.existsSync(distPath)) {
+    app.use(express.static(distPath));
+    console.log('Serving static files from:', distPath);
+  } else {
+    console.warn('Warning: dist folder not found. Run "npm run build" first.');
+  }
+}
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -36,10 +52,14 @@ const storage = multer.diskStorage({
   }
 });
 
+// File size limit: 500MB (configurable via environment variable)
+// Hostinger typically supports much larger files than Vercel's 4.5MB limit
+const MAX_FILE_SIZE = parseInt(process.env.MAX_FILE_SIZE || '500') * 1024 * 1024; // Default 500MB
+
 const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 200 * 1024 * 1024 // 200MB limit
+    fileSize: MAX_FILE_SIZE
   },
   fileFilter: (req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
@@ -51,8 +71,8 @@ const upload = multer({
   }
 });
 
-// Metadata file to store file information
-const METADATA_FILE = path.join(__dirname, 'uploads', 'metadata.json');
+// Metadata file to store file information (in uploads directory)
+const METADATA_FILE = path.join(UPLOADS_DIR, 'metadata.json');
 
 function getMetadata() {
   try {
@@ -84,7 +104,8 @@ app.post('/api/files/upload', (req, res, next) => {
       // Handle multer errors (file size, file type, etc.)
       if (err instanceof multer.MulterError) {
         if (err.code === 'LIMIT_FILE_SIZE') {
-          return res.status(400).json({ error: 'File size exceeds 200MB limit' });
+          const maxSizeMB = MAX_FILE_SIZE / (1024 * 1024);
+          return res.status(400).json({ error: `File size exceeds ${maxSizeMB}MB limit` });
         }
         return res.status(400).json({ error: err.message || 'File upload error' });
       }
@@ -95,12 +116,21 @@ app.post('/api/files/upload', (req, res, next) => {
   });
 }, (req, res) => {
   try {
+    console.log('Upload request received:', { 
+      hasFile: !!req.file, 
+      fileName: req.file?.originalname,
+      fileSize: req.file?.size,
+      body: req.body 
+    });
+    
     if (!req.file) {
+      console.error('No file in request');
       return res.status(400).json({ error: 'No file uploaded' });
     }
 
     const metadata = getMetadata();
-    const fileId = Date.now().toString();
+    // Use timestamp + random to avoid collisions
+    const fileId = `${Date.now()}-${Math.round(Math.random() * 1E9)}`;
     
     const fileData = {
       id: fileId,
@@ -116,6 +146,8 @@ app.post('/api/files/upload', (req, res, next) => {
     metadata[fileId] = fileData;
     saveMetadata(metadata);
 
+    console.log('File uploaded successfully:', fileData);
+    
     res.json({
       success: true,
       file: fileData
@@ -166,7 +198,8 @@ app.post('/api/files/upload-from-url', async (req, res) => {
     fs.writeFileSync(filePath, Buffer.from(buffer));
 
     const metadata = getMetadata();
-    const fileId = Date.now().toString();
+    // Use timestamp + random to avoid collisions
+    const fileId = `${Date.now()}-${Math.round(Math.random() * 1E9)}`;
     
     const fileData = {
       id: fileId,
@@ -318,8 +351,27 @@ app.use('/api/*', (req, res) => {
   res.status(404).json({ error: 'API endpoint not found' });
 });
 
+// Serve React app for all non-API routes (SPA fallback)
+if (NODE_ENV === 'production') {
+  const distPath = path.join(PROJECT_ROOT, 'dist');
+  if (fs.existsSync(distPath)) {
+    app.get('*', (req, res) => {
+      // Don't serve index.html for API routes
+      if (req.path.startsWith('/api')) {
+        return res.status(404).json({ error: 'API endpoint not found' });
+      }
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  }
+}
+
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`Environment: ${NODE_ENV}`);
   console.log(`Uploads directory: ${UPLOADS_DIR}`);
+  console.log(`Max file size: ${MAX_FILE_SIZE / (1024 * 1024)}MB`);
+  if (NODE_ENV === 'production') {
+    console.log('Production mode: Serving built frontend from dist/');
+  }
 });
 
