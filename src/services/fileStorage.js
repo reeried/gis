@@ -29,35 +29,50 @@ export async function getAllFiles() {
  */
 export async function uploadFile(file, sourceUrl = null) {
   try {
+    console.log('Starting file upload:', { fileName: file.name, fileSize: file.size, apiUrl: `${API_BASE_URL}/files/upload` });
+    
     const formData = new FormData();
     formData.append('file', file);
     if (sourceUrl) {
       formData.append('sourceUrl', sourceUrl);
     }
 
+    console.log('Sending request to:', `${API_BASE_URL}/files/upload`);
+    
     const response = await fetch(`${API_BASE_URL}/files/upload`, {
       method: 'POST',
       body: formData,
+      // Don't set Content-Type header - let browser set it with boundary for multipart/form-data
     });
+
+    console.log('Response received:', { status: response.status, statusText: response.statusText, ok: response.ok });
 
     if (!response.ok) {
       // Check if response is JSON
       const contentType = response.headers.get('content-type');
+      console.error('Upload failed:', { status: response.status, statusText: response.statusText, contentType });
+      
       if (contentType && contentType.includes('application/json')) {
         const error = await response.json();
+        console.error('Error response JSON:', error);
         throw new Error(error.error || 'Failed to upload file');
       } else {
         // If not JSON, read as text to see what we got
         const text = await response.text();
         console.error('Non-JSON error response:', text);
-        throw new Error(`Upload failed: ${response.status} ${response.statusText}`);
+        throw new Error(`Upload failed: ${response.status} ${response.statusText}. ${text.substring(0, 200)}`);
       }
     }
 
     const result = await response.json();
+    console.log('Upload successful:', result);
     return result.file;
   } catch (error) {
     console.error('Error uploading file:', error);
+    // Provide more helpful error messages
+    if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
+      throw new Error('Cannot connect to server. Please make sure the server is running on port 3001.');
+    }
     throw error;
   }
 }

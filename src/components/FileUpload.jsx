@@ -21,18 +21,27 @@ export default function FileUpload({ onFileUpload }) {
 
     try {
       // Step 1: Upload file to server
+      console.log('Step 1: Uploading file to server...');
       const serverFile = await uploadFile(file);
       console.log('File uploaded to server:', serverFile);
 
       // Step 2: Parse the file to get GeoJSON
-      const geoJson = await parseKMLFile(file);
-      console.log('File parsed successfully:', {
-        fileName: file.name,
-        geoJsonType: geoJson.type,
-        featureCount: geoJson.features?.length || 0
-      });
+      console.log('Step 2: Parsing file to GeoJSON...');
+      let geoJson;
+      try {
+        geoJson = await parseKMLFile(file);
+        console.log('File parsed successfully:', {
+          fileName: file.name,
+          geoJsonType: geoJson.type,
+          featureCount: geoJson.features?.length || 0
+        });
+      } catch (parseError) {
+        console.error('Error parsing file:', parseError);
+        throw new Error(`Failed to parse KML file: ${parseError.message}`);
+      }
       
       // Step 3: Save lightweight metadata (without GeoJSON to avoid quota issues)
+      console.log('Step 3: Saving file metadata...');
       const fileData = {
         id: serverFile.id,
         name: serverFile.name,
@@ -43,19 +52,34 @@ export default function FileUpload({ onFileUpload }) {
       };
       
       // Save only lightweight metadata (GeoJSON is not stored in localStorage)
-      saveFileMetadata({
-        id: serverFile.id,
-        name: serverFile.name,
-        visible: true,
-        uploadedAt: serverFile.uploadedAt,
-        sourceUrl: serverFile.sourceUrl || null,
-      });
+      try {
+        saveFileMetadata({
+          id: serverFile.id,
+          name: serverFile.name,
+          visible: true,
+          uploadedAt: serverFile.uploadedAt,
+          sourceUrl: serverFile.sourceUrl || null,
+        });
+        console.log('Metadata saved successfully');
+      } catch (metadataError) {
+        console.warn('Warning: Failed to save metadata to localStorage:', metadataError);
+        // Continue even if metadata save fails
+      }
       
       // Step 4: Notify parent component (with GeoJSON for immediate use)
+      console.log('Step 4: Notifying parent component...');
       onFileUpload(fileData);
+      console.log('File upload process completed successfully');
     } catch (err) {
       console.error('File upload error:', err);
-      setError(err.message || 'Failed to upload file');
+      // Provide more user-friendly error messages
+      let errorMessage = err.message || 'Failed to upload file';
+      if (errorMessage.includes('Failed to fetch') || errorMessage.includes('Cannot connect')) {
+        errorMessage = 'Cannot connect to server. Please make sure the backend server is running.';
+      } else if (errorMessage.includes('NetworkError')) {
+        errorMessage = 'Network error. Please check your connection and try again.';
+      }
+      setError(errorMessage);
     } finally {
       setIsLoading(false);
     }
