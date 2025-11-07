@@ -1,0 +1,325 @@
+import express from 'express';
+import multer from 'multer';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import cors from 'cors';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const app = express();
+const PORT = process.env.PORT || 3001;
+
+// Create uploads directory if it doesn't exist
+const UPLOADS_DIR = path.join(__dirname, 'uploads');
+if (!fs.existsSync(UPLOADS_DIR)) {
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+}
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+app.use('/uploads', express.static(UPLOADS_DIR));
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, UPLOADS_DIR);
+  },
+  filename: (req, file, cb) => {
+    // Generate unique filename with timestamp
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const ext = path.extname(file.originalname);
+    const name = path.basename(file.originalname, ext);
+    cb(null, `${name}-${uniqueSuffix}${ext}`);
+  }
+});
+
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 200 * 1024 * 1024 // 200MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (ext === '.kml' || ext === '.kmz') {
+      cb(null, true);
+    } else {
+      cb(new Error('Only .kml and .kmz files are allowed'));
+    }
+  }
+});
+
+// Metadata file to store file information
+const METADATA_FILE = path.join(__dirname, 'uploads', 'metadata.json');
+
+function getMetadata() {
+  try {
+    if (fs.existsSync(METADATA_FILE)) {
+      const data = fs.readFileSync(METADATA_FILE, 'utf8');
+      return JSON.parse(data);
+    }
+  } catch (error) {
+    console.error('Error reading metadata:', error);
+  }
+  return {};
+}
+
+function saveMetadata(metadata) {
+  try {
+    fs.writeFileSync(METADATA_FILE, JSON.stringify(metadata, null, 2));
+  } catch (error) {
+    console.error('Error saving metadata:', error);
+    throw error;
+  }
+}
+
+// API Routes
+
+// Upload KML file
+app.post('/api/files/upload', (req, res, next) => {
+  upload.single('file')(req, res, (err) => {
+    if (err) {
+      // Handle multer errors (file size, file type, etc.)
+      if (err instanceof multer.MulterError) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          return res.status(400).json({ error: 'File size exceeds 200MB limit' });
+        }
+        return res.status(400).json({ error: err.message || 'File upload error' });
+      }
+      // Handle other errors (like fileFilter errors)
+      return res.status(400).json({ error: err.message || 'File upload error' });
+    }
+    next();
+  });
+}, (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const metadata = getMetadata();
+    const fileId = Date.now().toString();
+    
+    const fileData = {
+      id: fileId,
+      name: req.file.originalname,
+      filename: req.file.filename,
+      path: `/uploads/${req.file.filename}`,
+      size: req.file.size,
+      uploadedAt: new Date().toISOString(),
+      visible: true,
+      sourceUrl: req.body.sourceUrl || null
+    };
+
+    metadata[fileId] = fileData;
+    saveMetadata(metadata);
+
+    res.json({
+      success: true,
+      file: fileData
+    });
+  } catch (error) {
+    console.error('Upload error:', error);
+    res.status(500).json({ error: error.message || 'Failed to upload file' });
+  }
+});
+
+// Upload KML from URL (server downloads and saves it)
+app.post('/api/files/upload-from-url', async (req, res) => {
+  try {
+    const { url } = req.body;
+    
+    if (!url) {
+      return res.status(400).json({ error: 'URL is required' });
+    }
+
+    // Validate URL
+    let urlObj;
+    try {
+      urlObj = new URL(url);
+    } catch {
+      return res.status(400).json({ error: 'Invalid URL' });
+    }
+
+    // Fetch the file from URL
+    const response = await fetch(url);
+    if (!response.ok) {
+      return res.status(400).json({ error: `Failed to fetch file from URL: ${response.statusText}` });
+    }
+
+    const buffer = await response.arrayBuffer();
+    const fileName = url.split('/').pop() || `kml-${Date.now()}.kml`;
+    const ext = path.extname(fileName).toLowerCase();
+    
+    if (ext !== '.kml' && ext !== '.kmz') {
+      return res.status(400).json({ error: 'URL must point to a .kml or .kmz file' });
+    }
+
+    // Save file to disk
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const name = path.basename(fileName, ext);
+    const savedFileName = `${name}-${uniqueSuffix}${ext}`;
+    const filePath = path.join(UPLOADS_DIR, savedFileName);
+    
+    fs.writeFileSync(filePath, Buffer.from(buffer));
+
+    const metadata = getMetadata();
+    const fileId = Date.now().toString();
+    
+    const fileData = {
+      id: fileId,
+      name: fileName,
+      filename: savedFileName,
+      path: `/uploads/${savedFileName}`,
+      size: buffer.byteLength,
+      uploadedAt: new Date().toISOString(),
+      visible: true,
+      sourceUrl: url
+    };
+
+    metadata[fileId] = fileData;
+    saveMetadata(metadata);
+
+    res.json({
+      success: true,
+      file: fileData
+    });
+  } catch (error) {
+    console.error('URL upload error:', error);
+    res.status(500).json({ error: error.message || 'Failed to upload file from URL' });
+  }
+});
+
+// Get all files
+app.get('/api/files', (req, res) => {
+  try {
+    const metadata = getMetadata();
+    const files = Object.values(metadata);
+    res.json(files);
+  } catch (error) {
+    console.error('Error getting files:', error);
+    res.status(500).json({ error: 'Failed to get files' });
+  }
+});
+
+// Get file by ID
+app.get('/api/files/:id', (req, res) => {
+  try {
+    const metadata = getMetadata();
+    const file = metadata[req.params.id];
+    
+    if (!file) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+
+    res.json(file);
+  } catch (error) {
+    console.error('Error getting file:', error);
+    res.status(500).json({ error: 'Failed to get file' });
+  }
+});
+
+// Download file
+app.get('/api/files/:id/download', (req, res) => {
+  try {
+    const metadata = getMetadata();
+    const file = metadata[req.params.id];
+    
+    if (!file) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+
+    const filePath = path.join(UPLOADS_DIR, file.filename);
+    
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'File not found on disk' });
+    }
+
+    res.download(filePath, file.name);
+  } catch (error) {
+    console.error('Error downloading file:', error);
+    res.status(500).json({ error: 'Failed to download file' });
+  }
+});
+
+// Update file visibility
+app.patch('/api/files/:id/visibility', (req, res) => {
+  try {
+    const metadata = getMetadata();
+    const file = metadata[req.params.id];
+    
+    if (!file) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+
+    file.visible = req.body.visible !== undefined ? req.body.visible : file.visible;
+    metadata[req.params.id] = file;
+    saveMetadata(metadata);
+
+    res.json({ success: true, file });
+  } catch (error) {
+    console.error('Error updating file visibility:', error);
+    res.status(500).json({ error: 'Failed to update file visibility' });
+  }
+});
+
+// Delete file
+app.delete('/api/files/:id', (req, res) => {
+  try {
+    const metadata = getMetadata();
+    const file = metadata[req.params.id];
+    
+    if (!file) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+
+    // Delete physical file
+    const filePath = path.join(UPLOADS_DIR, file.filename);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+
+    // Remove from metadata
+    delete metadata[req.params.id];
+    saveMetadata(metadata);
+
+    res.json({ success: true, message: 'File deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting file:', error);
+    res.status(500).json({ error: 'Failed to delete file' });
+  }
+});
+
+// Health check
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Error handling middleware - must be after all routes
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err);
+  
+  // If response already sent, delegate to default Express error handler
+  if (res.headersSent) {
+    return next(err);
+  }
+  
+  // Return JSON error response
+  res.status(err.status || 500).json({
+    error: err.message || 'Internal server error',
+    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+  });
+});
+
+// 404 handler for API routes
+app.use('/api/*', (req, res) => {
+  res.status(404).json({ error: 'API endpoint not found' });
+});
+
+app.listen(PORT, () => {
+  console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`Uploads directory: ${UPLOADS_DIR}`);
+});
+

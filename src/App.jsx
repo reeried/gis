@@ -10,7 +10,8 @@ import AdminDashboard from './components/AdminDashboard';
 import RiverMap from './components/RiverMap';
 import RiverData from './components/RiverData';
 import ConditionPhotos from './components/ConditionPhotos';
-import { getAllFiles } from './services/fileStorage';
+import { getAllFiles, getFileMetadata, downloadFile } from './services/fileStorage';
+import { parseKMLFile } from './utils/kmlParser';
 
 function App() {
   const { isAuthenticated } = useAuth();
@@ -29,7 +30,7 @@ function App() {
   // Listen for storage changes (cross-tab updates)
   useEffect(() => {
     const handleStorageChange = (e) => {
-      if (e.key === 'uploadedKMLFiles' && !showAdminDashboard) {
+      if (e.key === 'kmlFileMetadata' && !showAdminDashboard) {
         loadStoredFiles();
       }
     };
@@ -38,18 +39,63 @@ function App() {
     return () => window.removeEventListener('storage', handleStorageChange);
   }, [showAdminDashboard]);
 
-  const loadStoredFiles = () => {
-    const storedFiles = getAllFiles();
-    // Convert stored files to layer format
-    const loadedLayers = storedFiles
-      .filter(file => file.visible) // Only load visible files
-      .map(file => ({
-        id: file.id,
-        name: file.name,
-        geoJson: file.geoJson,
-        visible: file.visible,
-      }));
-    setLayers(loadedLayers);
+  const loadStoredFiles = async () => {
+    try {
+      // Get all files from server
+      const serverFiles = await getAllFiles();
+      
+      // Load layers with GeoJSON data
+      const loadedLayers = await Promise.all(
+        serverFiles
+          .filter(file => file.visible) // Only load visible files
+          .map(async (file) => {
+            // Try to get metadata from localStorage first
+            let metadata = getFileMetadata(file.id);
+            
+            // If no metadata, download and parse the file
+            if (!metadata || !metadata.geoJson) {
+              try {
+                const blob = await downloadFile(file.id);
+                const fileObj = new File([blob], file.name, { type: blob.type });
+                const geoJson = await parseKMLFile(fileObj);
+                
+                // Save metadata for future use
+                metadata = {
+                  id: file.id,
+                  name: file.name,
+                  geoJson: geoJson,
+                  visible: file.visible,
+                  uploadedAt: file.uploadedAt,
+                  sourceUrl: file.sourceUrl || null,
+                };
+                
+                const { saveFileMetadata } = await import('./services/fileStorage');
+                saveFileMetadata(metadata);
+              } catch (err) {
+                console.error(`Error loading file ${file.id}:`, err);
+                return null;
+              }
+            }
+            
+            if (!metadata) return null;
+            
+            return {
+              id: metadata.id,
+              name: metadata.name,
+              geoJson: metadata.geoJson,
+              visible: metadata.visible,
+            };
+          })
+      );
+      
+      // Filter out null values
+      const validLayers = loadedLayers.filter(layer => layer !== null);
+      setLayers(validLayers);
+    } catch (error) {
+      console.error('Error loading stored files:', error);
+      // Fallback to empty layers if server is unavailable
+      setLayers([]);
+    }
   };
 
   const handleLoginSuccess = () => {

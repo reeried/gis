@@ -1,46 +1,103 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import FileUpload from './FileUpload';
-import { getAllFiles, deleteFile, updateFileVisibility, saveFile } from '../services/fileStorage';
+import { getAllFiles, deleteFile, updateFileVisibility, getFileMetadata, downloadFile } from '../services/fileStorage';
+import { parseKMLFile } from '../utils/kmlParser';
 
 export default function AdminDashboard({ onBackToHome }) {
   const { logout, user } = useAuth();
   const [uploadedFiles, setUploadedFiles] = useState([]);
   const [selectedFile, setSelectedFile] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     loadFiles();
   }, []);
 
-  const loadFiles = () => {
-    const files = getAllFiles();
-    setUploadedFiles(files);
+  const loadFiles = async () => {
+    setIsLoading(true);
+    try {
+      // Get all files from server
+      const serverFiles = await getAllFiles();
+      
+      // Load metadata for each file
+      const filesWithMetadata = await Promise.all(
+        serverFiles.map(async (file) => {
+          // Try to get metadata from localStorage first
+          let metadata = getFileMetadata(file.id);
+          
+          // If no metadata, download and parse the file
+          if (!metadata || !metadata.geoJson) {
+            try {
+              const blob = await downloadFile(file.id);
+              const fileObj = new File([blob], file.name, { type: blob.type });
+              const geoJson = await parseKMLFile(fileObj);
+              
+              // Save metadata for future use
+              const { saveFileMetadata } = await import('../services/fileStorage');
+              metadata = {
+                id: file.id,
+                name: file.name,
+                geoJson: geoJson,
+                visible: file.visible,
+                uploadedAt: file.uploadedAt,
+                sourceUrl: file.sourceUrl || null,
+              };
+              
+              saveFileMetadata(metadata);
+            } catch (err) {
+              console.error(`Error loading file ${file.id}:`, err);
+              // Return file without GeoJSON if parsing fails
+              return {
+                ...file,
+                geoJson: null,
+              };
+            }
+          }
+          
+          return {
+            ...file,
+            geoJson: metadata?.geoJson || null,
+          };
+        })
+      );
+      
+      setUploadedFiles(filesWithMetadata);
+    } catch (error) {
+      console.error('Error loading files:', error);
+      setUploadedFiles([]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleFileUpload = (newLayer) => {
-    saveFile({
-      id: newLayer.id,
-      name: newLayer.name,
-      geoJson: newLayer.geoJson,
-      visible: newLayer.visible,
-    });
+    // File is already saved to server and metadata is saved
+    // Just reload the list
     loadFiles();
   };
 
-  const handleDeleteFile = (fileId) => {
+  const handleDeleteFile = async (fileId) => {
     if (window.confirm('Are you sure you want to delete this file?')) {
-      if (deleteFile(fileId)) {
+      const success = await deleteFile(fileId);
+      if (success) {
         loadFiles();
         if (selectedFile?.id === fileId) {
           setSelectedFile(null);
         }
+      } else {
+        alert('Failed to delete file');
       }
     }
   };
 
-  const handleToggleVisibility = (fileId, currentVisible) => {
-    updateFileVisibility(fileId, !currentVisible);
-    loadFiles();
+  const handleToggleVisibility = async (fileId, currentVisible) => {
+    const success = await updateFileVisibility(fileId, !currentVisible);
+    if (success) {
+      loadFiles();
+    } else {
+      alert('Failed to update file visibility');
+    }
   };
 
   const handleLogout = () => {
@@ -138,7 +195,12 @@ export default function AdminDashboard({ onBackToHome }) {
                 </button>
               </div>
 
-              {uploadedFiles.length === 0 ? (
+              {isLoading ? (
+                <div className="text-center py-12">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+                  <p className="text-gray-600">Loading files...</p>
+                </div>
+              ) : uploadedFiles.length === 0 ? (
                 <div className="text-center py-12">
                   <svg
                     className="mx-auto h-16 w-16 text-gray-400 mb-4"

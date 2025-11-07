@@ -1,56 +1,151 @@
 /**
  * File Storage Service
- * Manages uploaded KML files using localStorage
+ * Manages uploaded KML files using server-side storage
  */
 
-const STORAGE_KEY = 'uploadedKMLFiles';
+// Use relative URL to work with Vite proxy, or absolute URL if VITE_API_URL is set
+const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
 /**
  * Get all uploaded files
  */
-export function getAllFiles() {
+export async function getAllFiles() {
   try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? JSON.parse(stored) : [];
+    const response = await fetch(`${API_BASE_URL}/files`);
+    if (!response.ok) {
+      throw new Error('Failed to fetch files');
+    }
+    const files = await response.json();
+    return files || [];
   } catch (error) {
     console.error('Error loading files:', error);
+    // Fallback to empty array if server is not available
     return [];
   }
 }
 
 /**
- * Save a new file
+ * Upload a file to the server
  */
-export function saveFile(fileData) {
+export async function uploadFile(file, sourceUrl = null) {
   try {
-    const files = getAllFiles();
-    const newFile = {
-      id: fileData.id || Date.now(),
+    const formData = new FormData();
+    formData.append('file', file);
+    if (sourceUrl) {
+      formData.append('sourceUrl', sourceUrl);
+    }
+
+    const response = await fetch(`${API_BASE_URL}/files/upload`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      // Check if response is JSON
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to upload file');
+      } else {
+        // If not JSON, read as text to see what we got
+        const text = await response.text();
+        console.error('Non-JSON error response:', text);
+        throw new Error(`Upload failed: ${response.status} ${response.statusText}`);
+      }
+    }
+
+    const result = await response.json();
+    return result.file;
+  } catch (error) {
+    console.error('Error uploading file:', error);
+    throw error;
+  }
+}
+
+/**
+ * Upload a file from URL
+ */
+export async function uploadFileFromURL(url) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/files/upload-from-url`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ url }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to upload file from URL');
+    }
+
+    const result = await response.json();
+    return result.file;
+  } catch (error) {
+    console.error('Error uploading file from URL:', error);
+    throw error;
+  }
+}
+
+/**
+ * Save file metadata (after parsing to GeoJSON)
+ * Note: The file is already saved on server, this just stores the GeoJSON in localStorage
+ * for quick access. The actual file remains on the server.
+ */
+export function saveFileMetadata(fileData) {
+  try {
+    const STORAGE_KEY = 'kmlFileMetadata';
+    const metadata = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    metadata[fileData.id] = {
+      id: fileData.id,
       name: fileData.name,
       geoJson: fileData.geoJson,
       visible: fileData.visible !== undefined ? fileData.visible : true,
       uploadedAt: fileData.uploadedAt || new Date().toISOString(),
-      // Preserve sourceUrl if provided (for files loaded from URL)
-      ...(fileData.sourceUrl && { sourceUrl: fileData.sourceUrl }),
+      sourceUrl: fileData.sourceUrl || null,
     };
-    
-    files.push(newFile);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(files));
-    return newFile;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(metadata));
+    return metadata[fileData.id];
   } catch (error) {
-    console.error('Error saving file:', error);
+    console.error('Error saving file metadata:', error);
     throw error;
+  }
+}
+
+/**
+ * Get file metadata (GeoJSON) from localStorage
+ */
+export function getFileMetadata(fileId) {
+  try {
+    const STORAGE_KEY = 'kmlFileMetadata';
+    const metadata = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    return metadata[fileId] || null;
+  } catch (error) {
+    console.error('Error getting file metadata:', error);
+    return null;
   }
 }
 
 /**
  * Delete a file by ID
  */
-export function deleteFile(fileId) {
+export async function deleteFile(fileId) {
   try {
-    const files = getAllFiles();
-    const filtered = files.filter(file => file.id !== fileId);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
+    const response = await fetch(`${API_BASE_URL}/files/${fileId}`, {
+      method: 'DELETE',
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to delete file');
+    }
+
+    // Also remove from localStorage metadata
+    const STORAGE_KEY = 'kmlFileMetadata';
+    const metadata = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    delete metadata[fileId];
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(metadata));
+
     return true;
   } catch (error) {
     console.error('Error deleting file:', error);
@@ -61,13 +156,28 @@ export function deleteFile(fileId) {
 /**
  * Update file visibility
  */
-export function updateFileVisibility(fileId, visible) {
+export async function updateFileVisibility(fileId, visible) {
   try {
-    const files = getAllFiles();
-    const updated = files.map(file =>
-      file.id === fileId ? { ...file, visible } : file
-    );
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    const response = await fetch(`${API_BASE_URL}/files/${fileId}/visibility`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ visible }),
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to update file visibility');
+    }
+
+    // Also update localStorage metadata
+    const STORAGE_KEY = 'kmlFileMetadata';
+    const metadata = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    if (metadata[fileId]) {
+      metadata[fileId].visible = visible;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(metadata));
+    }
+
     return true;
   } catch (error) {
     console.error('Error updating file visibility:', error);
@@ -78,21 +188,32 @@ export function updateFileVisibility(fileId, visible) {
 /**
  * Get a file by ID
  */
-export function getFileById(fileId) {
-  const files = getAllFiles();
-  return files.find(file => file.id === fileId);
+export async function getFileById(fileId) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/files/${fileId}`);
+    if (!response.ok) {
+      return null;
+    }
+    return await response.json();
+  } catch (error) {
+    console.error('Error getting file:', error);
+    return null;
+  }
 }
 
 /**
- * Clear all files
+ * Download file content (for parsing)
  */
-export function clearAllFiles() {
+export async function downloadFile(fileId) {
   try {
-    localStorage.removeItem(STORAGE_KEY);
-    return true;
+    const response = await fetch(`${API_BASE_URL}/files/${fileId}/download`);
+    if (!response.ok) {
+      throw new Error('Failed to download file');
+    }
+    return await response.blob();
   } catch (error) {
-    console.error('Error clearing files:', error);
-    return false;
+    console.error('Error downloading file:', error);
+    throw error;
   }
 }
 

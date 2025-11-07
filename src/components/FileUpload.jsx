@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react';
-import { parseKMLFile, parseKMLFromURL } from '../utils/kmlParser';
+import { parseKMLFile } from '../utils/kmlParser';
+import { uploadFile, uploadFileFromURL, saveFileMetadata } from '../services/fileStorage';
 
 export default function FileUpload({ onFileUpload }) {
   const [isDragging, setIsDragging] = useState(false);
@@ -19,22 +20,35 @@ export default function FileUpload({ onFileUpload }) {
     setError(null);
 
     try {
+      // Step 1: Upload file to server
+      const serverFile = await uploadFile(file);
+      console.log('File uploaded to server:', serverFile);
+
+      // Step 2: Parse the file to get GeoJSON
       const geoJson = await parseKMLFile(file);
-      console.log('File uploaded successfully:', {
+      console.log('File parsed successfully:', {
         fileName: file.name,
         geoJsonType: geoJson.type,
         featureCount: geoJson.features?.length || 0
       });
       
-      onFileUpload({
-        id: Date.now(),
-        name: file.name,
+      // Step 3: Save metadata with GeoJSON
+      const fileData = {
+        id: serverFile.id,
+        name: serverFile.name,
         geoJson: geoJson,
         visible: true,
-      });
+        uploadedAt: serverFile.uploadedAt,
+        sourceUrl: serverFile.sourceUrl || null,
+      };
+      
+      saveFileMetadata(fileData);
+      
+      // Step 4: Notify parent component
+      onFileUpload(fileData);
     } catch (err) {
       console.error('File upload error:', err);
-      setError(err.message || 'Failed to parse file');
+      setError(err.message || 'Failed to upload file');
     } finally {
       setIsLoading(false);
     }
@@ -87,8 +101,23 @@ export default function FileUpload({ onFileUpload }) {
     setError(null);
 
     try {
-      const geoJson = await parseKMLFromURL(urlInput);
-      const fileName = urlInput.split('/').pop() || `kml-${Date.now()}.kml`;
+      // Step 1: Upload file from URL to server
+      const serverFile = await uploadFileFromURL(urlInput);
+      console.log('File uploaded from URL to server:', serverFile);
+
+      // Step 2: Download and parse the file to get GeoJSON
+      // We need to fetch the file from the server to parse it
+      const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+      const response = await fetch(`${API_BASE_URL}/files/${serverFile.id}/download`);
+      if (!response.ok) {
+        throw new Error('Failed to download file from server');
+      }
+      
+      const blob = await response.blob();
+      const fileName = serverFile.name;
+      const file = new File([blob], fileName, { type: blob.type });
+      
+      const geoJson = await parseKMLFile(file);
       
       console.log('KML loaded from URL successfully:', {
         url: urlInput,
@@ -97,14 +126,20 @@ export default function FileUpload({ onFileUpload }) {
         featureCount: geoJson.features?.length || 0
       });
       
-      // IMPORTANT: Save to localStorage for permanent storage
-      onFileUpload({
-        id: Date.now(),
-        name: fileName,
+      // Step 3: Save metadata with GeoJSON
+      const fileData = {
+        id: serverFile.id,
+        name: serverFile.name,
         geoJson: geoJson,
         visible: true,
-        sourceUrl: urlInput, // Store the URL for reference
-      });
+        uploadedAt: serverFile.uploadedAt,
+        sourceUrl: urlInput,
+      };
+      
+      saveFileMetadata(fileData);
+      
+      // Step 4: Notify parent component
+      onFileUpload(fileData);
       
       // Clear URL input after successful load
       setUrlInput('');
