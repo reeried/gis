@@ -30,6 +30,8 @@ export function saveFile(fileData) {
       geoJson: fileData.geoJson,
       visible: fileData.visible !== undefined ? fileData.visible : true,
       uploadedAt: fileData.uploadedAt || new Date().toISOString(),
+      // Preserve sourceUrl if provided (for files loaded from URL)
+      ...(fileData.sourceUrl && { sourceUrl: fileData.sourceUrl }),
     };
     
     files.push(newFile);

@@ -341,6 +341,70 @@ export async function parseKMZ(file) {
 }
 
 /**
+ * Parse KML from URL (online mode)
+ */
+export async function parseKMLFromURL(url) {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        reject(new Error(`Failed to fetch KML from URL: ${response.status} ${response.statusText}`));
+        return;
+      }
+      
+      const contentType = response.headers.get('content-type') || '';
+      const urlLower = url.toLowerCase();
+      
+      // Check if it's a KMZ file (ZIP)
+      if (urlLower.endsWith('.kmz') || contentType.includes('application/zip') || contentType.includes('application/vnd.google-earth.kmz')) {
+        const arrayBuffer = await response.arrayBuffer();
+        const blob = new Blob([arrayBuffer], { type: 'application/zip' });
+        const file = new File([blob], url.split('/').pop() || 'file.kmz', { type: 'application/zip' });
+        try {
+          const geoJson = await parseKMZ(file);
+          resolve(geoJson);
+        } catch (err) {
+          reject(err);
+        }
+      } else {
+        // It's a KML file
+        const kmlContent = await response.text();
+        const fixedContent = fixKMLNamespaces(kmlContent);
+        const kml = new DOMParser().parseFromString(fixedContent, 'text/xml');
+        
+        // Check for XML parsing errors
+        const parserError = kml.querySelector('parsererror');
+        if (parserError) {
+          const errorText = parserError.textContent;
+          if (errorText.includes('Namespace prefix') || errorText.includes('schemaLocation')) {
+            // Remove xsi:schemaLocation attributes that cause issues
+            const retryContent = fixedContent.replace(/\s*xsi:schemaLocation\s*=\s*"[^"]*"/gi, '');
+            const retryKml = new DOMParser().parseFromString(retryContent, 'text/xml');
+            const retryError = retryKml.querySelector('parsererror');
+            if (retryError) {
+              reject(new Error('Invalid KML file format: ' + retryError.textContent));
+              return;
+            }
+            const geoJson = toGeoJSON.kml(retryKml);
+            processGeoJSON(geoJson, resolve, reject, 'KML');
+            return;
+          }
+          reject(new Error('Invalid KML file format: ' + errorText));
+          return;
+        }
+        
+        const geoJson = toGeoJSON.kml(kml);
+        processGeoJSON(geoJson, resolve, reject, 'KML');
+      }
+    } catch (error) {
+      console.error('Error loading KML from URL:', error);
+      reject(new Error(`Failed to load KML from URL: ${error.message}`));
+    }
+  });
+}
+
+/**
  * Parse either KML or KMZ file
  */
 export async function parseKMLFile(file) {
