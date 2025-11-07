@@ -1,0 +1,29 @@
+# Allow API routes to pass through to Node.js
+# This prevents Apache from blocking /api/* requests
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  
+  # Don't rewrite if the file or directory exists
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  
+  # Allow API routes (with or without trailing slash)
+  RewriteRule ^api/ - [L]
+  
+  # For production: serve static files from dist, then fallback to index.html
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule . /index.html [L]
+</IfModule>
+
+# Disable directory listing (security)
+Options -Indexes
+
+# Allow CORS for API routes (if needed)
+<IfModule mod_headers.c>
+  Header set Access-Control-Allow-Origin "*"
+  Header set Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+  Header set Access-Control-Allow-Headers "Content-Type, Authorization"
+</IfModule>
+

@@ -245,8 +245,20 @@ app.post('/api/files/upload-from-url', async (req, res) => {
   }
 });
 
-// Get all files
+// Get all files (handle both with and without trailing slash)
 app.get('/api/files', (req, res) => {
+  try {
+    const metadata = getMetadata();
+    const files = Object.values(metadata);
+    res.json(files);
+  } catch (error) {
+    console.error('Error getting files:', error);
+    res.status(500).json({ error: 'Failed to get files' });
+  }
+});
+
+// Also handle trailing slash to prevent 403 from web server
+app.get('/api/files/', (req, res) => {
   try {
     const metadata = getMetadata();
     const files = Object.values(metadata);

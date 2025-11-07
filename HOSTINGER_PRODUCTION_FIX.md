@@ -12,6 +12,14 @@
 
 **Fix:** Server now listens on `0.0.0.0` to accept connections from any network interface.
 
+### 3. ✅ 403 Forbidden Error on /api/files/
+**Problem:** Getting 403 Forbidden error when accessing `/api/files/` (with trailing slash). This was caused by web server (Apache/nginx) blocking directory access before the request reached Node.js.
+
+**Fix:** 
+- Added explicit route handler for `/api/files/` (with trailing slash) in `server/index.js`
+- Created `.htaccess` file to allow API routes to pass through to Node.js
+- Improved error handling in `fileStorage.js` to provide better error messages
+
 ## Deployment Checklist for Hostinger
 
 ### Step 1: Rebuild the Application
@@ -27,7 +35,9 @@ This creates the `dist/` folder with the updated frontend code.
 
 Upload these updated files to Hostinger:
 - `src/components/FileUpload.jsx` (fixed API URL)
-- `server/index.js` (fixed host binding)
+- `server/index.js` (fixed host binding, added trailing slash route)
+- `src/services/fileStorage.js` (improved error handling)
+- `.htaccess` (allows API routes to pass through)
 - `dist/` folder (rebuild with `npm run build`)
 
 ### Step 3: Verify Server Configuration
@@ -97,6 +107,24 @@ The server already has CORS enabled. If you still see CORS errors:
 - Verify `NODE_ENV=production` is set
 - Check server logs for route registration
 - Ensure `server/index.js` is the correct version
+
+### Issue: 403 Forbidden Error on /api/files/
+
+**Symptoms:**
+- Browser console shows: `GET https://gis.reeried.my.id/api/files/ 403 Forbidden`
+- Error message: "Failed to fetch files"
+
+**Check:**
+1. Is the Node.js server running? Check Hostinger logs
+2. Is `.htaccess` file uploaded to the root directory?
+3. Does Hostinger use Apache or nginx? (Apache uses .htaccess, nginx needs different config)
+
+**Solution:**
+- Ensure `.htaccess` file is in the root directory (same level as `server/` and `dist/`)
+- Verify Node.js server is running and accessible
+- Check server logs for any errors
+- If using nginx, you may need to configure nginx to proxy `/api/*` requests to Node.js
+- The route now handles both `/api/files` and `/api/files/` (with trailing slash)
 
 ### Issue: File Upload Not Working
 
@@ -182,8 +210,9 @@ Both should return JSON responses if the server is working correctly.
 ## Files Changed
 
 - ✅ `src/components/FileUpload.jsx` - Fixed API URL
-- ✅ `server/index.js` - Fixed host binding
-- ✅ `src/services/fileStorage.js` - Already using relative URLs (no change needed)
+- ✅ `server/index.js` - Fixed host binding, added trailing slash route handler
+- ✅ `src/services/fileStorage.js` - Improved error handling for 403 errors
+- ✅ `.htaccess` - Created to allow API routes to pass through to Node.js
 
 ## Next Steps
 

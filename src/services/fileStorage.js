@@ -25,15 +25,39 @@ export async function getAllFiles() {
   try {
     const url = getApiUrl('/files');
     const response = await fetch(url);
+    
     if (!response.ok) {
-      throw new Error('Failed to fetch files');
+      // Log detailed error information
+      console.error('Failed to fetch files:', {
+        status: response.status,
+        statusText: response.statusText,
+        url: url,
+        fullUrl: typeof window !== 'undefined' && url.startsWith('/') 
+          ? `${window.location.origin}${url}`
+          : url
+      });
+      
+      // If 403, provide more specific error message
+      if (response.status === 403) {
+        throw new Error(`Access forbidden (403). The server may be blocking the request. Check server configuration and ensure the Node.js server is running.`);
+      }
+      
+      throw new Error(`Failed to fetch files: ${response.status} ${response.statusText}`);
     }
+    
+    const contentType = response.headers.get('content-type');
+    if (!contentType || !contentType.includes('application/json')) {
+      const text = await response.text();
+      console.error('Non-JSON response received:', text.substring(0, 500));
+      throw new Error('Server returned invalid response. Expected JSON but received: ' + contentType);
+    }
+    
     const files = await response.json();
     return files || [];
   } catch (error) {
     console.error('Error loading files:', error);
-    // Fallback to empty array if server is not available
-    return [];
+    // Re-throw the error so the caller can handle it
+    throw error;
   }
 }
 
