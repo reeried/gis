@@ -10,7 +10,7 @@ import AdminDashboard from './components/AdminDashboard';
 import RiverMap from './components/RiverMap';
 import RiverData from './components/RiverData';
 import ConditionPhotos from './components/ConditionPhotos';
-import { getAllFiles, getFileMetadata, downloadFile, migrateFileMetadata } from './services/fileStorage';
+import { getAllFiles, getFileMetadata, downloadFile, migrateFileMetadata, saveFileMetadata } from './services/fileStorage';
 import { parseKMLFile } from './utils/kmlParser';
 
 function App() {
@@ -63,7 +63,6 @@ function App() {
               const geoJson = await parseKMLFile(fileObj);
               
               // Save lightweight metadata (without GeoJSON) for future reference
-              const { saveFileMetadata } = await import('./services/fileStorage');
               saveFileMetadata({
                 id: file.id,
                 name: file.name,

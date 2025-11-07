@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import FileUpload from './FileUpload';
-import { getAllFiles, deleteFile, updateFileVisibility, getFileMetadata, downloadFile } from '../services/fileStorage';
+import { getAllFiles, deleteFile, updateFileVisibility, getFileMetadata, downloadFile, saveFileMetadata } from '../services/fileStorage';
 import { parseKMLFile } from '../utils/kmlParser';
 
 export default function AdminDashboard({ onBackToHome }) {
@@ -32,7 +32,6 @@ export default function AdminDashboard({ onBackToHome }) {
             const geoJson = await parseKMLFile(fileObj);
             
             // Save lightweight metadata (without GeoJSON) for future reference
-            const { saveFileMetadata } = await import('../services/fileStorage');
             saveFileMetadata({
               id: file.id,
               name: file.name,
