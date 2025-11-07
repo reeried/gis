@@ -4,14 +4,27 @@
  */
 
 // Use relative URL to work with Vite proxy, or absolute URL if VITE_API_URL is set
+// In production (served from Express), relative URLs work fine
+// In development with Vite, the proxy handles /api -> http://localhost:3001/api
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
+
+// Helper to get full URL for debugging
+function getApiUrl(endpoint) {
+  const url = `${API_BASE_URL}${endpoint}`;
+  // If it's a relative URL and we're in the browser, log the full URL
+  if (typeof window !== 'undefined' && url.startsWith('/')) {
+    console.log(`API URL: ${window.location.origin}${url}`);
+  }
+  return url;
+}
 
 /**
  * Get all uploaded files
  */
 export async function getAllFiles() {
   try {
-    const response = await fetch(`${API_BASE_URL}/files`);
+    const url = getApiUrl('/files');
+    const response = await fetch(url);
     if (!response.ok) {
       throw new Error('Failed to fetch files');
     }
@@ -29,7 +42,14 @@ export async function getAllFiles() {
  */
 export async function uploadFile(file, sourceUrl = null) {
   try {
-    console.log('Starting file upload:', { fileName: file.name, fileSize: file.size, apiUrl: `${API_BASE_URL}/files/upload` });
+    const uploadUrl = getApiUrl('/files/upload');
+    console.log('Starting file upload:', { 
+      fileName: file.name, 
+      fileSize: file.size, 
+      apiUrl: uploadUrl,
+      baseUrl: API_BASE_URL,
+      windowLocation: typeof window !== 'undefined' ? window.location.href : 'N/A'
+    });
     
     const formData = new FormData();
     formData.append('file', file);
@@ -37,9 +57,10 @@ export async function uploadFile(file, sourceUrl = null) {
       formData.append('sourceUrl', sourceUrl);
     }
 
-    console.log('Sending request to:', `${API_BASE_URL}/files/upload`);
+    console.log('Sending request to:', uploadUrl);
+    console.log('FormData entries:', Array.from(formData.entries()).map(([k, v]) => [k, v instanceof File ? `${v.name} (${v.size} bytes)` : v]));
     
-    const response = await fetch(`${API_BASE_URL}/files/upload`, {
+    const response = await fetch(uploadUrl, {
       method: 'POST',
       body: formData,
       // Don't set Content-Type header - let browser set it with boundary for multipart/form-data
@@ -64,14 +85,37 @@ export async function uploadFile(file, sourceUrl = null) {
       }
     }
 
+    // Check if response is JSON before parsing
+    const contentType = response.headers.get('content-type');
+    if (!contentType || !contentType.includes('application/json')) {
+      const text = await response.text();
+      console.error('Non-JSON response received:', text.substring(0, 500));
+      throw new Error(`Server returned invalid response. This usually means the API endpoint is not available. Check if the server is running or if the API route is configured correctly.`);
+    }
+
     const result = await response.json();
     console.log('Upload successful:', result);
     return result.file;
   } catch (error) {
     console.error('Error uploading file:', error);
+    console.error('Error details:', {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+      apiUrl: getApiUrl('/files/upload'),
+      baseUrl: API_BASE_URL
+    });
+    
     // Provide more helpful error messages
-    if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
-      throw new Error('Cannot connect to server. Please make sure the server is running on port 3001.');
+    if (error.name === 'TypeError' && (error.message.includes('Failed to fetch') || error.message.includes('NetworkError'))) {
+      const apiUrl = getApiUrl('/files/upload');
+      const fullUrl = typeof window !== 'undefined' && apiUrl.startsWith('/') 
+        ? `${window.location.origin}${apiUrl}`
+        : apiUrl;
+      throw new Error(`Cannot connect to server at ${fullUrl}. Please make sure the backend server is running.`);
+    }
+    if (error.message.includes('SyntaxError') || error.message.includes('Unexpected token')) {
+      throw new Error('Server returned an invalid response. The API endpoint may not be configured correctly.');
     }
     throw error;
   }
@@ -82,7 +126,8 @@ export async function uploadFile(file, sourceUrl = null) {
  */
 export async function uploadFileFromURL(url) {
   try {
-    const response = await fetch(`${API_BASE_URL}/files/upload-from-url`, {
+    const apiUrl = getApiUrl('/files/upload-from-url');
+    const response = await fetch(apiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -207,7 +252,8 @@ export function getFileMetadata(fileId) {
  */
 export async function deleteFile(fileId) {
   try {
-    const response = await fetch(`${API_BASE_URL}/files/${fileId}`, {
+    const url = getApiUrl(`/files/${fileId}`);
+    const response = await fetch(url, {
       method: 'DELETE',
     });
 
@@ -238,7 +284,8 @@ export async function deleteFile(fileId) {
  */
 export async function updateFileVisibility(fileId, visible) {
   try {
-    const response = await fetch(`${API_BASE_URL}/files/${fileId}/visibility`, {
+    const url = getApiUrl(`/files/${fileId}/visibility`);
+    const response = await fetch(url, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -275,7 +322,8 @@ export async function updateFileVisibility(fileId, visible) {
  */
 export async function getFileById(fileId) {
   try {
-    const response = await fetch(`${API_BASE_URL}/files/${fileId}`);
+    const url = getApiUrl(`/files/${fileId}`);
+    const response = await fetch(url);
     if (!response.ok) {
       return null;
     }
@@ -291,7 +339,8 @@ export async function getFileById(fileId) {
  */
 export async function downloadFile(fileId) {
   try {
-    const response = await fetch(`${API_BASE_URL}/files/${fileId}/download`);
+    const url = getApiUrl(`/files/${fileId}/download`);
+    const response = await fetch(url);
     if (!response.ok) {
       throw new Error('Failed to download file');
     }

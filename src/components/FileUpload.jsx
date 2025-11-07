@@ -138,7 +138,8 @@ export default function FileUpload({ onFileUpload }) {
 
       // Step 2: Download and parse the file to get GeoJSON
       // We need to fetch the file from the server to parse it
-      const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+      // Use relative URL in production, or absolute if VITE_API_URL is set
+      const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
       const response = await fetch(`${API_BASE_URL}/files/${serverFile.id}/download`);
       if (!response.ok) {
         throw new Error('Failed to download file from server');

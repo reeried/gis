@@ -38,29 +38,30 @@ function saveMetadata(metadata) {
 }
 
 export default async function handler(req, res) {
-  // Set CORS headers
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  try {
+    // Set CORS headers
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
+    if (req.method === 'OPTIONS') {
+      return res.status(200).end();
+    }
 
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
+    if (req.method !== 'POST') {
+      return res.status(405).json({ error: 'Method not allowed' });
+    }
 
-  // Log request info for debugging
-  console.log('Upload request received:', {
-    method: req.method,
-    contentType: req.headers['content-type'],
-    contentLength: req.headers['content-length'],
-    hasBody: !!req.body,
-    isStream: typeof req.on === 'function',
-  });
+    // Log request info for debugging
+    console.log('Upload request received:', {
+      method: req.method,
+      contentType: req.headers['content-type'],
+      contentLength: req.headers['content-length'],
+      hasBody: !!req.body,
+      isStream: typeof req.on === 'function',
+    });
 
-  return new Promise((resolve, reject) => {
+    return new Promise((resolve, reject) => {
     let uploadedFile = null;
     let sourceUrl = null;
     let fileStream = null;
@@ -328,5 +329,9 @@ export default async function handler(req, res) {
       sendError(500, error.message || 'Failed to process upload');
     }
   });
+  } catch (error) {
+    console.error('Handler wrapper error:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
 }
 

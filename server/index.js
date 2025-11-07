@@ -22,10 +22,29 @@ if (!fs.existsSync(UPLOADS_DIR)) {
 }
 
 // Middleware
-app.use(cors());
+// CORS configuration - allow all origins
+// In production, frontend and API are on same domain, but CORS helps with any edge cases
+// In development, this allows Vite dev server to connect
+app.use(cors({
+  origin: true, // Allow all origins
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(express.json({ limit: '500mb' })); // Increase body parser limit for large files
 app.use(express.urlencoded({ extended: true, limit: '500mb' }));
 app.use('/uploads', express.static(UPLOADS_DIR));
+
+// Request logging middleware (for debugging)
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.path}`, {
+    contentType: req.headers['content-type'],
+    contentLength: req.headers['content-length'],
+    origin: req.headers.origin,
+    userAgent: req.headers['user-agent']?.substring(0, 50)
+  });
+  next();
+});
 
 // Serve static files from dist folder in production
 if (NODE_ENV === 'production') {
@@ -99,6 +118,7 @@ function saveMetadata(metadata) {
 
 // Upload KML file
 app.post('/api/files/upload', (req, res, next) => {
+  console.log('POST /api/files/upload route hit');
   upload.single('file')(req, res, (err) => {
     if (err) {
       // Handle multer errors (file size, file type, etc.)
@@ -352,6 +372,7 @@ app.use('/api/*', (req, res) => {
 });
 
 // Serve React app for all non-API routes (SPA fallback)
+// IMPORTANT: This only handles GET requests, so POST/PUT/DELETE API routes are safe
 if (NODE_ENV === 'production') {
   const distPath = path.join(PROJECT_ROOT, 'dist');
   if (fs.existsSync(distPath)) {
@@ -365,8 +386,12 @@ if (NODE_ENV === 'production') {
   }
 }
 
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+// Listen on 0.0.0.0 to accept connections from any network interface (required for Hostinger)
+// In production, Hostinger may assign a specific host, so we listen on all interfaces
+const HOST = process.env.HOST || '0.0.0.0';
+
+app.listen(PORT, HOST, () => {
+  console.log(`Server running on http://${HOST}:${PORT}`);
   console.log(`Environment: ${NODE_ENV}`);
   console.log(`Uploads directory: ${UPLOADS_DIR}`);
   console.log(`Max file size: ${MAX_FILE_SIZE / (1024 * 1024)}MB`);
