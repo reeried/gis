@@ -16,6 +16,15 @@ export default function FileUpload({ onFileUpload }) {
       return;
     }
 
+    // Check file size - Vercel has a 4.5MB limit
+    const fileSizeMB = file.size / (1024 * 1024);
+    const isVercel = typeof window !== 'undefined' && window.location.hostname.includes('vercel.app');
+    
+    if (isVercel && fileSizeMB > 4.5) {
+      setError(`File size (${fileSizeMB.toFixed(2)}MB) exceeds Vercel's 4.5MB limit. Please use a smaller file or deploy to Hostinger for larger file support (up to 500MB).`);
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
 

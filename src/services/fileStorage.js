@@ -97,6 +97,17 @@ export async function uploadFile(file, sourceUrl = null) {
       const contentType = response.headers.get('content-type');
       console.error('Upload failed:', { status: response.status, statusText: response.statusText, contentType });
       
+      // Handle 413 (Payload Too Large) - Vercel's 4.5MB limit
+      if (response.status === 413) {
+        if (contentType && contentType.includes('application/json')) {
+          const error = await response.json();
+          throw new Error(error.error || 'File size exceeds Vercel\'s 4.5MB limit. Please use a smaller file or deploy to Hostinger for larger file support.');
+        } else {
+          const text = await response.text();
+          throw new Error(`File size exceeds Vercel's 4.5MB limit. ${text.substring(0, 200)}`);
+        }
+      }
+      
       if (contentType && contentType.includes('application/json')) {
         const error = await response.json();
         console.error('Error response JSON:', error);

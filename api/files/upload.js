@@ -102,12 +102,14 @@ export default async function handler(req, res) {
       }
 
       // Check content-length if available
+      // Vercel has a hard 4.5MB limit for serverless function request bodies
       const contentLength = req.headers['content-length'];
       if (contentLength) {
         const sizeInMB = parseInt(contentLength) / (1024 * 1024);
         console.log(`Request content-length: ${sizeInMB.toFixed(2)}MB`);
         if (sizeInMB > 4.5) {
-          console.warn('WARNING: File size exceeds Vercel 4.5MB limit. Upload may fail.');
+          console.warn('WARNING: File size exceeds Vercel 4.5MB limit. Upload will fail.');
+          return sendError(413, `File size (${sizeInMB.toFixed(2)}MB) exceeds Vercel's 4.5MB limit. Please use a smaller file or deploy to Hostinger for larger file support (up to 500MB).`);
         }
       }
 
@@ -277,14 +279,15 @@ export default async function handler(req, res) {
         if (error.message.includes('Unexpected end of form') || 
             error.message.includes('Malformed')) {
           // This usually means the request was truncated or incomplete
+          // On Vercel, this often happens when file exceeds 4.5MB limit
           console.error('Form data incomplete. Possible causes:');
           console.error('- Request body was truncated');
           console.error('- File size exceeds Vercel limit (4.5MB)');
           console.error('- Network interruption');
           console.error('- Request timeout');
-          sendError(400, 'Invalid or incomplete form data. Please check file size (must be < 4.5MB for Vercel) and try again.');
+          sendError(413, 'File upload failed: Request was truncated. This usually means the file exceeds Vercel\'s 4.5MB limit. Please use a file smaller than 4.5MB, or deploy to Hostinger for larger file support (up to 500MB).');
         } else if (error.code === 'LIMIT_FILE_SIZE') {
-          sendError(400, 'File size exceeds 200MB limit');
+          sendError(413, 'File size exceeds limit. For Vercel, maximum is 4.5MB. For larger files, deploy to Hostinger (supports up to 500MB).');
         } else {
           sendError(500, error.message || 'Failed to parse form data');
         }
@@ -300,7 +303,12 @@ export default async function handler(req, res) {
       req.on('error', (err) => {
         console.error('Request stream error:', err);
         if (!hasError) {
-          sendError(500, 'Request stream error');
+          // Vercel may reject large request bodies before they reach the function
+          if (err.message && (err.message.includes('too large') || err.message.includes('413'))) {
+            sendError(413, 'File size exceeds Vercel\'s 4.5MB limit. Please use a smaller file or deploy to Hostinger for larger file support (up to 500MB).');
+          } else {
+            sendError(500, 'Request stream error: ' + (err.message || 'Unknown error'));
+          }
         }
       });
       
