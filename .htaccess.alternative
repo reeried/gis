@@ -1,0 +1,40 @@
+# Alternative .htaccess configuration
+# Use this if mod_proxy is not available on your Hostinger account
+# 
+# IMPORTANT: This configuration assumes Node.js is serving directly
+# without Apache proxying. If this doesn't work, you may need to
+# contact Hostinger support to enable mod_proxy.
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  
+  # Don't rewrite if the file or directory exists
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  
+  # Allow API routes to pass through (Node.js handles them)
+  # This prevents Apache from blocking /api/* requests
+  RewriteRule ^api/ - [L]
+  
+  # For production: serve static files from dist, then fallback to index.html
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule . /index.html [L]
+</IfModule>
+
+# Disable directory listing (security)
+Options -Indexes
+
+# Allow CORS for API routes (if needed)
+<IfModule mod_headers.c>
+  Header set Access-Control-Allow-Origin "*"
+  Header set Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+  Header set Access-Control-Allow-Headers "Content-Type, Authorization"
+</IfModule>
+
+# Note: If you're using this alternative configuration and still getting
+# "Cannot connect to server" errors, it likely means:
+# 1. Node.js server is not running - Start it in Hostinger control panel
+# 2. Hostinger uses a different setup - Contact Hostinger support
+# 3. Port configuration is wrong - Check PORT environment variable
+

@@ -1,5 +1,21 @@
-# Allow API routes to pass through to Node.js
-# This prevents Apache from blocking /api/* requests
+# Proxy API routes to Node.js server
+# This configuration proxies /api/* requests to the Node.js server
+
+<IfModule mod_proxy.c>
+  # Enable proxy module
+  ProxyPreserveHost On
+  ProxyRequests Off
+  
+  # Proxy all /api/* requests to Node.js server
+  # Replace 3001 with the port your Node.js server is running on
+  # If Hostinger assigns a different port, update this value
+  ProxyPass /api http://localhost:3001/api
+  ProxyPassReverse /api http://localhost:3001/api
+  
+  # Handle WebSocket connections if needed (for future use)
+  ProxyPass /socket.io http://localhost:3001/socket.io
+  ProxyPassReverse /socket.io http://localhost:3001/socket.io
+</IfModule>
 
 <IfModule mod_rewrite.c>
   RewriteEngine On
@@ -8,10 +24,8 @@
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d
   
-  # Allow API routes (with or without trailing slash)
-  RewriteRule ^api/ - [L]
-  
   # For production: serve static files from dist, then fallback to index.html
+  # API routes are handled by mod_proxy above
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d
   RewriteRule . /index.html [L]

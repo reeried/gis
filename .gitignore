@@ -27,6 +27,13 @@ dist-ssr
 uploads/*
 !uploads/.gitkeep
 
+# Server uploads directory
+server/uploads/*
+!server/uploads/.gitkeep
+
 # Vercel (not used for Hostinger deployment)
 .vercel
 vercel.json
+
+# Test files
+test-upload.js
