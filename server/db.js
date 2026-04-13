@@ -7,16 +7,18 @@ import mysql from 'mysql2/promise';
 
 // Database configuration from environment variables
 const dbConfig = {
-  host: process.env.DB_HOST || 'localhost',
-  port: process.env.DB_PORT || 3306,
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'gis_files',
+  host: process.env.DB_HOST,
+  port: process.env.DB_PORT,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME,
+  ssl: {
+    minVersion: 'TLSv1.2',
+    rejectUnauthorized: true // Ini penting untuk keamanan di TiDB Cloud
+  },
   waitForConnections: true,
   connectionLimit: 10,
-  queueLimit: 0,
-  enableKeepAlive: true,
-  keepAliveInitialDelay: 0
+  queueLimit: 0
 };
 
 // Create connection pool
