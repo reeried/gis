@@ -2,7 +2,7 @@ import { useAuth } from '../contexts/AuthContext';
 
 export default function Header({ activePage = 'BERANDA', onAdminClick, isAuthenticated, onPageChange }) {
   const { logout } = useAuth();
-  const navItems = ['BERANDA', 'SELAYANG PANDANG', 'KONTAK KAMI', 'KKPR', 'PETA SUNGAI', 'DATA SUNGAI', 'FOTO KONDISI'];
+  const navItems = ['BERANDA', 'PETA SUNGAI', 'DATA SUNGAI', 'FOTO KONDISI', 'DOKUMEN'];
   
   const handleAdminClick = () => {
     if (isAuthenticated) {
@@ -34,8 +34,11 @@ export default function Header({ activePage = 'BERANDA', onAdminClick, isAuthent
             </div>
             <div>
               <h1 className="text-sm font-semibold text-gray-800 leading-tight">
-                Dinas Pekerjaan Umum, Penataan Ruang Kota Kupang
+                Dinas Pekerjaan Umum dan Penataan Ruang Kota Kupang
               </h1>
+              <p className="text-xs font-medium text-gray-600 mt-1">
+                DATABASE SUNGAI KOTA KUPANG
+              </p>
             </div>
           </div>
 

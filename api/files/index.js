@@ -1,30 +1,16 @@
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-const UPLOADS_DIR = '/tmp/uploads';
-const METADATA_FILE = path.join(UPLOADS_DIR, 'metadata.json');
-
-function getMetadata() {
-  try {
-    if (fs.existsSync(METADATA_FILE)) {
-      const data = fs.readFileSync(METADATA_FILE, 'utf8');
-      return JSON.parse(data);
-    }
-  } catch (error) {
-    console.error('Error reading metadata:', error);
-  }
-  return {};
-}
+import { getMetadata, getStorageInfo } from './storage.js';
 
 export default async function handler(req, res) {
   // Set CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  
+  // Prevent caching - Vercel serverless functions have ephemeral storage
+  // Each function invocation has a fresh /tmp directory
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
@@ -32,8 +18,21 @@ export default async function handler(req, res) {
 
   if (req.method === 'GET') {
     try {
-      const metadata = getMetadata();
+      // Log storage info for debugging
+      const storageInfo = getStorageInfo();
+      console.log('Storage info:', storageInfo);
+      
+      const metadata = await getMetadata();
       const files = Object.values(metadata);
+      
+      console.log('Metadata keys:', Object.keys(metadata));
+      console.log('Files count:', files.length);
+      
+      // Warn if on Vercel but KV is not configured
+      if (storageInfo.isVercel && !storageInfo.kvAvailable && storageInfo.warning) {
+        console.warn(storageInfo.warning);
+      }
+      
       res.status(200).json(files);
     } catch (error) {
       console.error('Error getting files:', error);

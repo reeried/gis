@@ -219,8 +219,61 @@ async function extractKMZImages(zip, kmlContent) {
 /**
  * Replace image paths in GeoJSON properties with blob URLs
  */
+function escapeRegExp(str = '') {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function replaceImageReferencesInString(value, imageMap) {
+  if (!value || typeof value !== 'string' || imageMap.size === 0) {
+    return value;
+  }
+
+  let updatedValue = value;
+  imageMap.forEach((blobUrl, originalPath) => {
+    if (!originalPath || !blobUrl) return;
+    const escapedPath = escapeRegExp(originalPath);
+    if (escapedPath) {
+      updatedValue = updatedValue.replace(new RegExp(escapedPath, 'gi'), blobUrl);
+    }
+
+    const fileName = originalPath.split('/').pop();
+    if (fileName) {
+      const escapedFileName = escapeRegExp(fileName);
+      updatedValue = updatedValue.replace(new RegExp(escapedFileName, 'gi'), blobUrl);
+    }
+  });
+
+  return updatedValue;
+}
+
+function resolveImagePath(path, imageMap) {
+  if (!path || imageMap.size === 0) {
+    return path;
+  }
+
+  for (const [originalPath, blobUrl] of imageMap.entries()) {
+    if (!originalPath || !blobUrl) continue;
+
+    if (path.includes(originalPath) || originalPath.includes(path)) {
+      return blobUrl;
+    }
+
+    const pathFileName = path.split('/').pop();
+    const originalFileName = originalPath.split('/').pop();
+    if (
+      pathFileName &&
+      originalFileName &&
+      pathFileName.toLowerCase() === originalFileName.toLowerCase()
+    ) {
+      return blobUrl;
+    }
+  }
+
+  return path;
+}
+
 function replaceImagePaths(geoJson, imageMap) {
-  if (!geoJson.features) return;
+  if (!geoJson.features || imageMap.size === 0) return;
   
   geoJson.features.forEach(feature => {
     if (!feature.properties) return;
@@ -229,42 +282,52 @@ function replaceImagePaths(geoJson, imageMap) {
     const photoKeys = ['pdfmaps_photos', 'photos', 'photo', 'image', 'images', 'href'];
     
     photoKeys.forEach(key => {
-      if (feature.properties[key]) {
-        const value = feature.properties[key];
-        
-        // Handle string with semicolons
-        if (typeof value === 'string') {
-          const paths = value.split(';').map(p => p.trim());
-          const replacedPaths = paths.map(path => {
-            // Try to find matching blob URL
-            for (const [originalPath, blobUrl] of imageMap.entries()) {
-              if (path.includes(originalPath) || originalPath.includes(path)) {
-                return blobUrl;
-              }
-              // Check by filename
-              const pathFileName = path.split('/').pop();
-              const originalFileName = originalPath.split('/').pop();
-              if (pathFileName === originalFileName) {
-                return blobUrl;
-              }
-            }
-            return path; // Return original if no match found
-          });
-          feature.properties[key] = replacedPaths.join(';');
+      if (!feature.properties[key]) return;
+
+      const value = feature.properties[key];
+      
+      if (typeof value === 'string') {
+        // If the string already contains <img> tags, replace the src paths directly
+        if (/<img[^>]+src=/i.test(value)) {
+          feature.properties[key] = replaceImageReferencesInString(value, imageMap);
+          return;
         }
+
+        const paths = value.split(';').map(p => p.trim()).filter(Boolean);
+        if (paths.length === 0) {
+          feature.properties[key] = replaceImageReferencesInString(value, imageMap);
+          return;
+        }
+
+        const replacedPaths = paths.map(path => {
+          const replacedByReference = replaceImageReferencesInString(path, imageMap);
+          if (replacedByReference !== path) {
+            return replacedByReference;
+          }
+          return resolveImagePath(path, imageMap);
+        });
+
+        feature.properties[key] = replacedPaths.join(';');
+        return;
+      }
+
+      if (Array.isArray(value)) {
+        feature.properties[key] = value.map(item => {
+          if (typeof item === 'string') {
+            const replacedByReference = replaceImageReferencesInString(item, imageMap);
+            if (replacedByReference !== item) {
+              return replacedByReference;
+            }
+            return resolveImagePath(item, imageMap);
+          }
+          return item;
+        });
       }
     });
     
     // Also check description for image references
     if (feature.properties.description && typeof feature.properties.description === 'string') {
-      let desc = feature.properties.description;
-      imageMap.forEach((blobUrl, originalPath) => {
-        // Replace image paths in description
-        const fileName = originalPath.split('/').pop();
-        desc = desc.replace(new RegExp(originalPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), blobUrl);
-        desc = desc.replace(new RegExp(fileName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), blobUrl);
-      });
-      feature.properties.description = desc;
+      feature.properties.description = replaceImageReferencesInString(feature.properties.description, imageMap);
     }
   });
 }

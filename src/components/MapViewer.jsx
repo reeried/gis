@@ -11,6 +11,166 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
 });
 
+function isMalformedImageUrl(url) {
+  if (!url || typeof url !== 'string') return false;
+  const trimmed = url.trim();
+
+  return trimmed.startsWith('/base64,') ||
+    (trimmed.startsWith('base64,') && !trimmed.startsWith('data:')) ||
+    (trimmed.includes('://') && trimmed.includes('/base64,')) ||
+    (trimmed.match(/^https?:\/\//) && trimmed.includes('base64,'));
+}
+
+const PHOTO_PROPERTY_KEYS = ['pdfmaps_photos', 'photos', 'photo', 'image', 'images', 'href'];
+
+function findFirstPhotoProperty(properties) {
+  if (!properties) return null;
+  
+  for (const key of Object.keys(properties)) {
+    if (!properties[key]) continue;
+    if (PHOTO_PROPERTY_KEYS.includes(key.toLowerCase())) {
+      return { key, value: properties[key] };
+    }
+  }
+  
+  return null;
+}
+
+function extractImageSourcesFromHtml(htmlString) {
+  if (!htmlString || typeof htmlString !== 'string') return [];
+  const matches = Array.from(htmlString.matchAll(/<img[^>]+src=["']([^"']+)["']/gi));
+  return matches.map(match => match[1]).filter(Boolean);
+}
+
+function renderPhotoImages(photoPaths) {
+  if (!photoPaths) return '';
+
+  let paths = [];
+  if (typeof photoPaths === 'string') {
+    if (/<img[^>]+src=/i.test(photoPaths)) {
+      paths = extractImageSourcesFromHtml(photoPaths);
+    } else {
+      paths = photoPaths.split(';').map(p => p.trim()).filter(p => p);
+    }
+  } else if (Array.isArray(photoPaths)) {
+    paths = photoPaths;
+  } else {
+    paths = [photoPaths];
+  }
+
+  if (paths.length === 0) return '';
+
+  return paths.map((path, index) => {
+    const imageUrl = path.trim();
+
+    if (!imageUrl || imageUrl === 'None' || imageUrl === 'null') return '';
+
+    const isBlobUrl = imageUrl.startsWith('blob:');
+    const isDataUrl = imageUrl.startsWith('data:');
+
+    const isMalformedDataUrl = isMalformedImageUrl(imageUrl);
+
+    if (isMalformedDataUrl) {
+      console.warn(`Malformed data URL detected (missing "data:" prefix), skipping image ${index + 1}: ${imageUrl.substring(0, 150)}...`);
+      return `
+        <div style="margin: 5px 0; color: #999; font-size: 12px; padding: 10px; text-align: center; border: 1px dashed #ddd; border-radius: 4px;">
+          Image ${index + 1} tidak dapat dimuat (format URL tidak valid - akan diperbaiki otomatis)
+        </div>
+      `;
+    }
+
+    if (isDataUrl) {
+      if (!imageUrl.match(/^data:[\w\/]+;base64,/)) {
+        console.warn(`Invalid data URL format detected, skipping image ${index + 1}`);
+        return `
+          <div style="margin: 5px 0; color: #999; font-size: 12px; padding: 10px; text-align: center; border: 1px dashed #ddd; border-radius: 4px;">
+            Image ${index + 1} tidak dapat dimuat (format URL tidak valid)
+          </div>
+        `;
+      }
+      if (imageUrl.length > 2 * 1024 * 1024) {
+        console.warn(`Data URL too long (${(imageUrl.length / 1024 / 1024).toFixed(2)}MB), skipping to avoid 431 errors`);
+        return `
+          <div style="margin: 5px 0; color: #999; font-size: 12px; padding: 10px; text-align: center; border: 1px dashed #ddd; border-radius: 4px;">
+            Image ${index + 1} terlalu besar untuk dimuat
+          </div>
+        `;
+      }
+    }
+
+    if (!isDataUrl && !isBlobUrl && !imageUrl.startsWith('http') && !imageUrl.startsWith('/') && imageUrl.length > 100) {
+      const base64Pattern = /^[A-Za-z0-9+/=]+$/;
+      if (base64Pattern.test(imageUrl.substring(0, 100))) {
+        console.warn(`Suspected malformed base64 URL detected, skipping image ${index + 1}`);
+        return `
+          <div style="margin: 5px 0; color: #999; font-size: 12px; padding: 10px; text-align: center; border: 1px dashed #ddd; border-radius: 4px;">
+            Image ${index + 1} tidak dapat dimuat (format URL tidak valid)
+          </div>
+        `;
+      }
+    }
+
+    let escapedUrl;
+    if (isDataUrl) {
+      escapedUrl = imageUrl.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    } else {
+      escapedUrl = imageUrl.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    const imgId = `img-${Date.now()}-${index}`;
+    const errorId = `error-${imgId}`;
+
+    return `
+      <div style="margin: 5px 0;" id="img-container-${imgId}">
+        <img 
+          id="${imgId}"
+          src="${escapedUrl}" 
+          alt="Photo ${index + 1}"
+          style="width: 100%; height: auto; max-height: 70vh; object-fit: contain; border: 1px solid #ddd; border-radius: 4px; display: block; margin: 5px 0;"
+          onerror="
+            const img = document.getElementById('${imgId}');
+            const errorDiv = document.getElementById('${errorId}');
+            if (img) img.style.display = 'none';
+            if (errorDiv) errorDiv.style.display = 'block';
+          "
+          onload="
+            const errorDiv = document.getElementById('${errorId}');
+            if (errorDiv) errorDiv.style.display = 'none';
+          "
+          loading="lazy"
+        />
+        <div id="${errorId}" style="display: none; color: #999; font-size: 12px; padding: 10px; text-align: center; border: 1px dashed #ddd; border-radius: 4px;">
+          Image ${index + 1} tidak dapat dimuat${isBlobUrl ? ' (blob URL mungkin sudah tidak valid)' : isDataUrl ? ' (data URL mungkin terlalu besar atau tidak valid)' : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function parseDescription(description) {
+  if (!description) return '';
+
+  if (description.includes('<img') || description.includes('<IMG')) {
+    let sanitized = description;
+    const placeholderSvg = 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'400\' height=\'300\'%3E%3Crect fill=\'%23ddd\' width=\'400\' height=\'300\'/%3E%3Ctext fill=\'%23999\' font-family=\'sans-serif\' font-size=\'20\' dy=\'10.5\' font-weight=\'bold\' x=\'50%25\' y=\'50%25\' text-anchor=\'middle\'%3EImage tidak dapat dimuat%3C/text%3E%3C/svg%3E';
+
+    sanitized = sanitized.replace(
+      /src=["']([^"']+)["']/gi,
+      (match, url) => {
+        if (isMalformedImageUrl(url)) {
+          console.warn(`Removing malformed data URL from description: ${url.substring(0, 150)}...`);
+          return `src="${placeholderSvg}"`;
+        }
+        return match;
+      }
+    );
+
+    return sanitized;
+  }
+
+  return description;
+}
+
 function MapUpdater({ bounds, skipUpdate = false }) {
   const map = useMap();
   
@@ -95,10 +255,45 @@ function BasemapLayer({ basemap }) {
   return null;
 }
 
-export default function MapViewer({ layers, basemap = 'street', showDistrictBoundaries = false, districtBoundariesData = null }) {
+export default function MapViewer({ 
+  layers, 
+  basemap = 'street', 
+  showDistrictBoundaries = false, 
+  showRiverLayers = false,
+  showPhotoLayers = false,
+  showAdministrativeBoundaries = false,
+  showDasLayers = false,
+  showContourLayers = false,
+  showSumurBorLayers = false,
+  showMataAirLayers = false,
+  showBendungLayers = false,
+  showReservoirLayers = false,
+  showJaringanAirBersihLayers = false,
+  showSawahLayers = false,
+  showJaringanIrigasiLayers = false,
+  districtBoundariesData = null 
+}) {
   const mapRef = useRef(null);
   const [selectedFeature, setSelectedFeature] = useState(null);
   const [hasInteractedWithFeature, setHasInteractedWithFeature] = useState(false);
+
+  const shouldRenderLayer = (layerGroup = 'district') => {
+    const normalized = typeof layerGroup === 'string' ? layerGroup.toLowerCase() : 'district';
+    if (normalized === 'district') return showDistrictBoundaries;
+    if (normalized === 'river') return showRiverLayers;
+    if (normalized === 'photo') return showPhotoLayers;
+    if (normalized === 'administrative') return showAdministrativeBoundaries;
+    if (normalized === 'das') return showDasLayers;
+    if (normalized === 'contour') return showContourLayers;
+    if (normalized === 'sumur_bor') return showSumurBorLayers;
+    if (normalized === 'mata_air') return showMataAirLayers;
+    if (normalized === 'bendung') return showBendungLayers;
+    if (normalized === 'reservoir') return showReservoirLayers;
+    if (normalized === 'jaringan_air_bersih') return showJaringanAirBersihLayers;
+    if (normalized === 'sawah') return showSawahLayers;
+    if (normalized === 'jaringan_irigasi') return showJaringanIrigasiLayers;
+    return true;
+  };
 
   const getBoundsForLayer = (geoJson) => {
     if (!geoJson || !geoJson.features || geoJson.features.length === 0) {
@@ -161,11 +356,12 @@ export default function MapViewer({ layers, basemap = 'street', showDistrictBoun
     ];
   };
 
-  // Collect all bounds from visible layers and merge them (only if toggle is ON)
-  const allBounds = showDistrictBoundaries ? layers
-    .filter(layer => layer.visible && layer.geoJson)
+  // Collect all bounds from visible layers controlled by toggles
+  const toggledLayerBounds = layers
+    .filter(layer => layer.visible && layer.geoJson && shouldRenderLayer(layer.layerGroup))
     .map(layer => getBoundsForLayer(layer.geoJson))
-    .filter(b => b !== null) : [];
+    .filter(b => b !== null);
+  const allBounds = [...toggledLayerBounds];
   
   // Also include district boundaries bounds if enabled
   if (showDistrictBoundaries && districtBoundariesData) {
@@ -213,104 +409,72 @@ export default function MapViewer({ layers, basemap = 'street', showDistrictBoun
     return defaultStyle;
   };
 
-  // Helper function to render images from photo paths
-  const renderPhotoImages = (photoPaths) => {
-    if (!photoPaths) return '';
-    
-    // Handle different formats: string with semicolons, array, or single path
-    let paths = [];
-    if (typeof photoPaths === 'string') {
-      // Split by semicolon if it's a delimited string
-      paths = photoPaths.split(';').map(p => p.trim()).filter(p => p);
-    } else if (Array.isArray(photoPaths)) {
-      paths = photoPaths;
-    } else {
-      paths = [photoPaths];
-    }
-    
-    if (paths.length === 0) return '';
-    
-    // Render images
-    return paths.map((path, index) => {
-      // Handle relative paths (from KMZ) - convert to blob URL if needed
-      // For now, try to load as-is (could be absolute URL or relative path)
-      const imageUrl = path.trim();
-      
-      // Skip if path is empty or invalid
-      if (!imageUrl || imageUrl === 'None' || imageUrl === 'null') return '';
-      
-      return `
-        <div style="margin: 5px 0;">
-          <img 
-            src="${imageUrl}" 
-            alt="Photo ${index + 1}"
-            style="width: 100%; height: auto; max-height: 70vh; object-fit: contain; border: 1px solid #ddd; border-radius: 4px; display: block; margin: 5px 0;"
-            onerror="this.style.display='none'; this.nextElementSibling.style.display='block';"
-          />
-          <div style="display: none; color: #999; font-size: 12px;">Image ${index + 1} tidak dapat dimuat</div>
-        </div>
-      `;
-    }).join('');
-  };
-
-  // Helper function to parse and render HTML description with images
-  const parseDescription = (description) => {
-    if (!description) return '';
-    
-    // Check if description contains HTML (like <img> tags)
-    if (description.includes('<img') || description.includes('<IMG')) {
-      // Return as-is if it's already HTML
-      return description;
-    }
-    
-    // Otherwise return as plain text
-    return description;
-  };
-
   const onEachFeature = (feature, layer) => {
-    // Add hover effects to highlight borders
-    layer.on({
-      mouseover: (e) => {
-        const layer = e.target;
-        layer.setStyle({
-          weight: 5,
-          color: '#00bfff', // Light blue highlight color
-          opacity: 1,
-          fillOpacity: 0.2,
-        });
-        
-        // Change cursor to pointer
-        if (layer._path) {
-          layer._path.style.cursor = 'pointer';
+    // Add hover effects to highlight borders (only for Path layers, not Markers)
+    // Check if layer has setStyle method (Path layers like Polyline, Polygon have it)
+    const isPathLayer = typeof layer.setStyle === 'function';
+    
+    if (isPathLayer) {
+      layer.on({
+        mouseover: (e) => {
+          const layer = e.target;
+          if (layer.setStyle) {
+            layer.setStyle({
+              weight: 5,
+              color: '#00bfff', // Light blue highlight color
+              opacity: 1,
+              fillOpacity: 0.2,
+            });
+          }
+          
+          // Change cursor to pointer
+          if (layer._path) {
+            layer._path.style.cursor = 'pointer';
+          }
+          
+          // Bring to front on hover
+          if (!L.Browser.ie && !L.Browser.opera && !L.Browser.edge) {
+            layer.bringToFront();
+          }
+        },
+        mouseout: (e) => {
+          // Reset to original style
+          const layer = e.target;
+          if (layer.setStyle) {
+            const geoJsonLayer = layer.feature;
+            if (geoJsonLayer) {
+              const originalStyle = getStyle(geoJsonLayer);
+              layer.setStyle(originalStyle);
+            }
+          }
+          
+          // Reset cursor
+          if (layer._path) {
+            layer._path.style.cursor = '';
+          }
         }
-        
-        // Bring to front on hover
-        if (!L.Browser.ie && !L.Browser.opera && !L.Browser.edge) {
-          layer.bringToFront();
+      });
+    } else {
+      // For Marker/Point layers, just add cursor pointer on hover
+      layer.on({
+        mouseover: (e) => {
+          const layer = e.target;
+          if (layer._icon) {
+            layer._icon.style.cursor = 'pointer';
+          }
+        },
+        mouseout: (e) => {
+          const layer = e.target;
+          if (layer._icon) {
+            layer._icon.style.cursor = '';
+          }
         }
-      },
-      mouseout: (e) => {
-        // Reset to original style
-        const layer = e.target;
-        const geoJsonLayer = layer.feature;
-        if (geoJsonLayer) {
-          const originalStyle = getStyle(geoJsonLayer);
-          layer.setStyle(originalStyle);
-        }
-        
-        // Reset cursor
-        if (layer._path) {
-          layer._path.style.cursor = '';
-        }
-      }
-    });
+      });
+    }
 
     if (feature.properties) {
       // Filter out style and stroke related properties
       const styleKeysToHide = ['styleUrl', 'styleHash', 'stroke', 'stroke-opacity', 'stroke-width', 'fill', 'fill-opacity'];
-      
-      // Photo-related keys to handle specially
-      const photoKeys = ['pdfmaps_photos', 'photos', 'photo', 'image', 'images', 'href'];
       
       let popupContent = '';
       const contentParts = [];
@@ -328,14 +492,12 @@ export default function MapViewer({ layers, basemap = 'street', showDistrictBoun
       
       // Handle photo properties
       let hasPhotos = false;
-      for (const key of photoKeys) {
-        if (feature.properties[key]) {
-          const photoImages = renderPhotoImages(feature.properties[key]);
-          if (photoImages) {
-            contentParts.push(`<div style="margin-top: 10px;"><strong>Photos:</strong>${photoImages}</div>`);
-            hasPhotos = true;
-            break; // Only show first photo property found
-          }
+      const photoProperty = findFirstPhotoProperty(feature.properties);
+      if (photoProperty) {
+        const photoImages = renderPhotoImages(photoProperty.value);
+        if (photoImages) {
+          contentParts.push(`<div style="margin-top: 10px;"><strong>Photos:</strong>${photoImages}</div>`);
+          hasPhotos = true;
         }
       }
       
@@ -346,7 +508,7 @@ export default function MapViewer({ layers, basemap = 'street', showDistrictBoun
             !key.startsWith('_') && 
             feature.properties[key] &&
             !styleKeysToHide.includes(key) &&
-            !photoKeys.includes(key.toLowerCase()) &&
+            !PHOTO_PROPERTY_KEYS.includes(key.toLowerCase()) &&
             key !== 'name' &&
             key !== 'description'
           )
@@ -384,38 +546,46 @@ export default function MapViewer({ layers, basemap = 'street', showDistrictBoun
   };
 
   const onEachDistrictBoundary = (feature, layer) => {
-    // Add hover effects to highlight district boundaries
-    layer.on({
-      mouseover: (e) => {
-        const layer = e.target;
-        layer.setStyle({
-          weight: 5,
-          color: '#00bfff', // Light blue highlight color
-          opacity: 1,
-          fillOpacity: 0.2,
-        });
-        
-        // Change cursor to pointer
-        if (layer._path) {
-          layer._path.style.cursor = 'pointer';
+    // Add hover effects to highlight district boundaries (only for Path layers)
+    const isPathLayer = typeof layer.setStyle === 'function';
+    
+    if (isPathLayer) {
+      layer.on({
+        mouseover: (e) => {
+          const layer = e.target;
+          if (layer.setStyle) {
+            layer.setStyle({
+              weight: 5,
+              color: '#00bfff', // Light blue highlight color
+              opacity: 1,
+              fillOpacity: 0.2,
+            });
+          }
+          
+          // Change cursor to pointer
+          if (layer._path) {
+            layer._path.style.cursor = 'pointer';
+          }
+          
+          // Bring to front on hover
+          if (!L.Browser.ie && !L.Browser.opera && !L.Browser.edge) {
+            layer.bringToFront();
+          }
+        },
+        mouseout: (e) => {
+          // Reset to original style
+          const layer = e.target;
+          if (layer.setStyle) {
+            layer.setStyle(getDistrictBoundariesStyle());
+          }
+          
+          // Reset cursor
+          if (layer._path) {
+            layer._path.style.cursor = '';
+          }
         }
-        
-        // Bring to front on hover
-        if (!L.Browser.ie && !L.Browser.opera && !L.Browser.edge) {
-          layer.bringToFront();
-        }
-      },
-      mouseout: (e) => {
-        // Reset to original style
-        const layer = e.target;
-        layer.setStyle(getDistrictBoundariesStyle());
-        
-        // Reset cursor
-        if (layer._path) {
-          layer._path.style.cursor = '';
-        }
-      }
-    });
+      });
+    }
 
     if (feature.properties) {
       // Filter out style and stroke related properties
@@ -461,44 +631,39 @@ export default function MapViewer({ layers, basemap = 'street', showDistrictBoun
       >
         <BasemapLayer basemap={basemap} />
         
-        {showDistrictBoundaries && (
-          <>
-            {districtBoundariesData && (
-              <GeoJSON
-                key="district-boundaries"
-                data={districtBoundariesData}
-                style={getDistrictBoundariesStyle}
-                onEachFeature={onEachDistrictBoundary}
-              />
-            )}
-            
-            {layers.map((layer, index) => {
-              if (!layer.visible || !layer.geoJson) {
-                return null;
-              }
-              
-              // Validate GeoJSON before rendering
-              if (!layer.geoJson.features || layer.geoJson.features.length === 0) {
-                console.warn(`Layer ${layer.name} has no features to display`);
-                return null;
-              }
-              
-              console.log(`Rendering layer ${layer.name}:`, {
-                featureCount: layer.geoJson.features.length,
-                bounds: getBoundsForLayer(layer.geoJson)
-              });
-              
-              return (
-                <GeoJSON
-                  key={layer.id}
-                  data={layer.geoJson}
-                  style={getStyle}
-                  onEachFeature={onEachFeature}
-                />
-              );
-            })}
-          </>
+        {showDistrictBoundaries && districtBoundariesData && (
+          <GeoJSON
+            key="district-boundaries"
+            data={districtBoundariesData}
+            style={getDistrictBoundariesStyle}
+            onEachFeature={onEachDistrictBoundary}
+          />
         )}
+        
+        {layers.map((layer) => {
+          if (!layer.visible || !layer.geoJson || !shouldRenderLayer(layer.layerGroup)) {
+            return null;
+          }
+          
+          if (!layer.geoJson.features || layer.geoJson.features.length === 0) {
+            console.warn(`Layer ${layer.name} has no features to display`);
+            return null;
+          }
+          
+          console.log(`Rendering layer ${layer.name}:`, {
+            featureCount: layer.geoJson.features.length,
+            bounds: getBoundsForLayer(layer.geoJson)
+          });
+          
+          return (
+            <GeoJSON
+              key={layer.id}
+              data={layer.geoJson}
+              style={getStyle}
+              onEachFeature={onEachFeature}
+            />
+          );
+        })}
         
         <MapUpdater bounds={mergedBounds} skipUpdate={hasInteractedWithFeature} />
         {selectedFeature && <FeatureZoom feature={selectedFeature} />}
@@ -533,28 +698,54 @@ function FeatureDetailsModal({ feature, onClose, renderPhotoImages }) {
 
   // Filter out style and stroke related properties
   const styleKeysToHide = ['styleUrl', 'styleHash', 'stroke', 'stroke-opacity', 'stroke-width', 'fill', 'fill-opacity'];
-  const photoKeys = ['pdfmaps_photos', 'photos', 'photo', 'image', 'images', 'href'];
   
   // Get feature title (name or first property)
   const title = feature.properties.name || 
                 feature.properties.Name || 
                 feature.properties.NAME ||
                 Object.keys(feature.properties)
-                  .filter(key => !styleKeysToHide.includes(key) && !photoKeys.includes(key.toLowerCase()))
+                  .filter(key => !styleKeysToHide.includes(key) && !PHOTO_PROPERTY_KEYS.includes(key.toLowerCase()))
                   .find(key => feature.properties[key]) || 
                 'Feature Details';
   
-  // Get description if exists
-  const description = feature.properties.description || feature.properties.Description;
+  // Get description if exists and sanitize it
+  const rawDescription = feature.properties.description || feature.properties.Description;
+  const hasMeaningfulDescription = typeof rawDescription === 'string' && rawDescription.trim() && !['none', 'null', '-'].includes(rawDescription.trim().toLowerCase());
+  const description = hasMeaningfulDescription ? parseDescription(rawDescription) : null;
   
   // Get photos
-  let photos = null;
-  for (const key of photoKeys) {
-    if (feature.properties[key]) {
-      photos = feature.properties[key];
-      break;
+  const photoProperty = findFirstPhotoProperty(feature.properties);
+  const photos = photoProperty ? photoProperty.value : null;
+
+  const formatPropertyValue = (value) => {
+    if (value === null || value === undefined || value === '' || value === 'None') {
+      return '-';
     }
-  }
+    if (Array.isArray(value)) {
+      return value.join(', ');
+    }
+    if (typeof value === 'object') {
+      try {
+        return JSON.stringify(value);
+      } catch {
+        return '-';
+      }
+    }
+    const stringValue = String(value);
+    return stringValue.length > 200 ? `${stringValue.slice(0, 200)}…` : stringValue;
+  };
+
+  const additionalProperties = Object.keys(feature.properties)
+    .filter(key => 
+      !styleKeysToHide.includes(key) &&
+      !PHOTO_PROPERTY_KEYS.includes(key.toLowerCase()) &&
+      !['name', 'description', 'Name', 'Description', 'NAME'].includes(key)
+    )
+    .map(key => ({
+      key,
+      value: formatPropertyValue(feature.properties[key])
+    }))
+    .filter(entry => entry.value && entry.value !== '-');
 
   return (
     <div 
@@ -574,13 +765,20 @@ function FeatureDetailsModal({ feature, onClose, renderPhotoImages }) {
         {/* Content */}
         <div className="p-6 overflow-y-auto flex-1">
           {/* Description */}
-          {description && (
+          {description ? (
             <div>
               <label className="text-sm font-medium text-gray-700 block mb-2">Description</label>
               <div 
                 className="text-sm text-gray-800 border border-gray-300 rounded p-3 bg-gray-50"
                 dangerouslySetInnerHTML={{ __html: description }}
               />
+            </div>
+          ) : (
+            <div>
+              <label className="text-sm font-medium text-gray-700 block mb-2">Description</label>
+              <div className="text-sm text-gray-500 border border-gray-200 rounded p-3 bg-gray-50 italic">
+                Tidak ada deskripsi yang tersedia untuk fitur ini.
+              </div>
             </div>
           )}
           
@@ -592,6 +790,21 @@ function FeatureDetailsModal({ feature, onClose, renderPhotoImages }) {
                 className="w-full"
                 dangerouslySetInnerHTML={{ __html: renderPhotoImages(photos) }}
               />
+            </div>
+          )}
+
+          {/* Other properties */}
+          {additionalProperties.length > 0 && (
+            <div className={(description || photos) ? 'mt-6' : ''}>
+              <label className="text-sm font-medium text-gray-700 block mb-3">Informasi Lain</label>
+              <div className="border border-gray-200 rounded divide-y">
+                {additionalProperties.map(({ key, value }) => (
+                  <div key={key} className="p-3">
+                    <div className="text-xs uppercase tracking-wide text-gray-500">{key}</div>
+                    <div className="text-sm text-gray-800 break-words">{value}</div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>

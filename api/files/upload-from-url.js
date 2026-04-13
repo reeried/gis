@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { getMetadata, saveMetadata } from './storage.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -8,29 +9,6 @@ const __dirname = path.dirname(__filename);
 const UPLOADS_DIR = '/tmp/uploads';
 if (!fs.existsSync(UPLOADS_DIR)) {
   fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-}
-
-const METADATA_FILE = path.join(UPLOADS_DIR, 'metadata.json');
-
-function getMetadata() {
-  try {
-    if (fs.existsSync(METADATA_FILE)) {
-      const data = fs.readFileSync(METADATA_FILE, 'utf8');
-      return JSON.parse(data);
-    }
-  } catch (error) {
-    console.error('Error reading metadata:', error);
-  }
-  return {};
-}
-
-function saveMetadata(metadata) {
-  try {
-    fs.writeFileSync(METADATA_FILE, JSON.stringify(metadata, null, 2));
-  } catch (error) {
-    console.error('Error saving metadata:', error);
-    throw error;
-  }
 }
 
 export default async function handler(req, res) {
@@ -48,7 +26,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { url } = req.body;
+    const { url, layerGroup } = req.body;
     
     if (!url) {
       return res.status(400).json({ error: 'URL is required' });
@@ -84,7 +62,7 @@ export default async function handler(req, res) {
     
     fs.writeFileSync(filePath, Buffer.from(buffer));
 
-    const metadata = getMetadata();
+    const metadata = await getMetadata();
     const fileId = Date.now().toString();
     
     const fileData = {
@@ -95,11 +73,12 @@ export default async function handler(req, res) {
       size: buffer.byteLength,
       uploadedAt: new Date().toISOString(),
       visible: true,
-      sourceUrl: url
+      sourceUrl: url,
+      layerGroup: layerGroup || 'district'
     };
 
     metadata[fileId] = fileData;
-    saveMetadata(metadata);
+    await saveMetadata(metadata);
 
     res.status(200).json({
       success: true,

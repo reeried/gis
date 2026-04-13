@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import busboy from 'busboy';
+import { getMetadata, saveMetadata, getStorageInfo } from './storage.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -12,29 +13,6 @@ const __dirname = path.dirname(__filename);
 const UPLOADS_DIR = '/tmp/uploads';
 if (!fs.existsSync(UPLOADS_DIR)) {
   fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-}
-
-const METADATA_FILE = path.join(UPLOADS_DIR, 'metadata.json');
-
-function getMetadata() {
-  try {
-    if (fs.existsSync(METADATA_FILE)) {
-      const data = fs.readFileSync(METADATA_FILE, 'utf8');
-      return JSON.parse(data);
-    }
-  } catch (error) {
-    console.error('Error reading metadata:', error);
-  }
-  return {};
-}
-
-function saveMetadata(metadata) {
-  try {
-    fs.writeFileSync(METADATA_FILE, JSON.stringify(metadata, null, 2));
-  } catch (error) {
-    console.error('Error saving metadata:', error);
-    throw error;
-  }
 }
 
 export default async function handler(req, res) {
@@ -60,10 +38,18 @@ export default async function handler(req, res) {
       hasBody: !!req.body,
       isStream: typeof req.on === 'function',
     });
+    
+    // Log storage info
+    const storageInfo = getStorageInfo();
+    console.log('Storage info:', storageInfo);
+    if (storageInfo.isVercel && storageInfo.warning) {
+      console.warn(storageInfo.warning);
+    }
 
     return new Promise((resolve, reject) => {
     let uploadedFile = null;
     let sourceUrl = null;
+    let layerGroup = 'district';
     let fileStream = null;
     let originalFilename = null;
     let fileSize = 0;
@@ -185,6 +171,8 @@ export default async function handler(req, res) {
       bb.on('field', (name, value) => {
         if (name === 'sourceUrl') {
           sourceUrl = value;
+        } else if (name === 'layerGroup') {
+          layerGroup = value || 'district';
         }
       });
 
@@ -197,9 +185,9 @@ export default async function handler(req, res) {
 
         // Wait for file stream to finish
         if (fileStream && !fileStream.destroyed) {
-          fileStream.on('close', () => {
+          fileStream.on('close', async () => {
             try {
-              const metadata = getMetadata();
+              const metadata = await getMetadata();
               const fileId = Date.now().toString();
               
               const fileData = {
@@ -210,11 +198,12 @@ export default async function handler(req, res) {
                 size: fileSize,
                 uploadedAt: new Date().toISOString(),
                 visible: true,
-                sourceUrl: sourceUrl || null
+                sourceUrl: sourceUrl || null,
+                layerGroup: layerGroup || 'district'
               };
 
               metadata[fileId] = fileData;
-              saveMetadata(metadata);
+              await saveMetadata(metadata);
 
               res.status(200).json({
                 success: true,
@@ -231,7 +220,7 @@ export default async function handler(req, res) {
         } else {
           // File stream already closed
           try {
-            const metadata = getMetadata();
+            const metadata = await getMetadata();
             const fileId = Date.now().toString();
             
             const fileData = {
@@ -242,11 +231,12 @@ export default async function handler(req, res) {
               size: fileSize,
               uploadedAt: new Date().toISOString(),
               visible: true,
-              sourceUrl: sourceUrl || null
+              sourceUrl: sourceUrl || null,
+              layerGroup: layerGroup || 'district'
             };
 
             metadata[fileId] = fileData;
-            saveMetadata(metadata);
+            await saveMetadata(metadata);
 
             res.status(200).json({
               success: true,

@@ -1,53 +1,39 @@
 import { useState, useEffect } from 'react';
+import { getAllConditionPhotos } from '../services/riverData';
 
 export default function ConditionPhotos() {
   const [photos, setPhotos] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selectedPhoto, setSelectedPhoto] = useState(null);
-  const [filter, setFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [locationFilter, setLocationFilter] = useState('all');
 
   useEffect(() => {
-    // Load photos - placeholder for now
-    // In production, this would fetch from an API
-    setLoading(true);
-    setTimeout(() => {
-      // Sample photo data structure
-      setPhotos([
-        {
-          id: 1,
-          title: 'Kondisi Sungai Benain - Bagian Hulu',
-          location: 'Kecamatan Oebobo',
-          date: '2024-01-15',
-          status: 'Normal',
-          imageUrl: '/placeholder-river.jpg',
-          description: 'Kondisi sungai dalam keadaan normal, aliran air lancar'
-        },
-        {
-          id: 2,
-          title: 'Kondisi Sungai Noel - Bagian Tengah',
-          location: 'Kecamatan Kelapa Lima',
-          date: '2024-01-14',
-          status: 'Normal',
-          imageUrl: '/placeholder-river.jpg',
-          description: 'Kondisi sungai stabil, tidak ada sedimentasi berlebihan'
-        },
-        {
-          id: 3,
-          title: 'Kondisi Sungai Oesapa - Bagian Hilir',
-          location: 'Kecamatan Alak',
-          date: '2024-01-13',
-          status: 'Perlu Perhatian',
-          imageUrl: '/placeholder-river.jpg',
-          description: 'Terjadi sedimentasi ringan, perlu pembersihan'
-        }
-      ]);
-      setLoading(false);
-    }, 500);
+    loadPhotos();
   }, []);
 
-  const filteredPhotos = filter === 'all' 
-    ? photos 
-    : photos.filter(photo => photo.status === filter);
+  const loadPhotos = async () => {
+    setLoading(true);
+    try {
+      const data = await getAllConditionPhotos();
+      setPhotos(data);
+    } catch (error) {
+      console.error('Error loading condition photos:', error);
+      // Fallback to empty array on error
+      setPhotos([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Get unique locations from photos
+  const locations = ['all', ...new Set(photos.map(photo => photo.location).filter(Boolean))];
+
+  const filteredPhotos = photos.filter(photo => {
+    const matchesStatus = statusFilter === 'all' || photo.status === statusFilter;
+    const matchesLocation = locationFilter === 'all' || photo.location === locationFilter;
+    return matchesStatus && matchesLocation;
+  });
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -71,48 +57,171 @@ export default function ConditionPhotos() {
         </p>
       </div>
 
-      {/* Filter */}
-      <div className="mb-4 flex gap-2">
-        <button
-          onClick={() => setFilter('all')}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-            filter === 'all' 
-              ? 'bg-green-600 text-white' 
-              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-          }`}
-        >
-          Semua
-        </button>
-        <button
-          onClick={() => setFilter('Normal')}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-            filter === 'Normal' 
-              ? 'bg-green-600 text-white' 
-              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-          }`}
-        >
-          Normal
-        </button>
-        <button
-          onClick={() => setFilter('Perlu Perhatian')}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-            filter === 'Perlu Perhatian' 
-              ? 'bg-yellow-600 text-white' 
-              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-          }`}
-        >
-          Perlu Perhatian
-        </button>
-        <button
-          onClick={() => setFilter('Kritis')}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-            filter === 'Kritis' 
-              ? 'bg-red-600 text-white' 
-              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-          }`}
-        >
-          Kritis
-        </button>
+      {/* Filters */}
+      <div className="mb-4 space-y-4">
+        {/* Status Filter */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Filter Berdasarkan Status:</label>
+          <div className="flex gap-2 flex-wrap">
+            <button
+              onClick={() => setStatusFilter('all')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                statusFilter === 'all' 
+                  ? 'bg-green-600 text-white' 
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              Semua
+            </button>
+            <button
+              onClick={() => setStatusFilter('Normal')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                statusFilter === 'Normal' 
+                  ? 'bg-green-600 text-white' 
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              Normal
+            </button>
+            <button
+              onClick={() => setStatusFilter('Perlu Perhatian')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                statusFilter === 'Perlu Perhatian' 
+                  ? 'bg-yellow-600 text-white' 
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              Perlu Perhatian
+            </button>
+            <button
+              onClick={() => setStatusFilter('Kritis')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                statusFilter === 'Kritis' 
+                  ? 'bg-red-600 text-white' 
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              Kritis
+            </button>
+          </div>
+        </div>
+
+        {/* Location Filter */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Filter Berdasarkan Lokasi:</label>
+          <div className="flex gap-2 flex-wrap">
+            <button
+              onClick={() => setLocationFilter('all')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                locationFilter === 'all' 
+                  ? 'bg-blue-600 text-white' 
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              Semua Lokasi
+            </button>
+            <button
+              onClick={() => setLocationFilter('Liliba')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                locationFilter === 'Liliba' 
+                  ? 'bg-blue-600 text-white' 
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              Liliba
+            </button>
+            <button
+              onClick={() => setLocationFilter('Alak')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                locationFilter === 'Alak' 
+                  ? 'bg-blue-600 text-white' 
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              Alak
+            </button>
+            <button
+              onClick={() => setLocationFilter('Dendeng')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                locationFilter === 'Dendeng' 
+                  ? 'bg-blue-600 text-white' 
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              Dendeng
+            </button>
+            <button
+              onClick={() => setLocationFilter('Lasiana')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                locationFilter === 'Lasiana' 
+                  ? 'bg-blue-600 text-white' 
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              Lasiana
+            </button>
+            <button
+              onClick={() => setLocationFilter('Merdeka')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                locationFilter === 'Merdeka' 
+                  ? 'bg-blue-600 text-white' 
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              Merdeka
+            </button>
+            <button
+              onClick={() => setLocationFilter('Oesapa Kecil')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                locationFilter === 'Oesapa Kecil' 
+                  ? 'bg-blue-600 text-white' 
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              Oesapa Kecil
+            </button>
+            <button
+              onClick={() => setLocationFilter('Oeba')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                locationFilter === 'Oeba' 
+                  ? 'bg-blue-600 text-white' 
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              Oeba
+            </button>
+            <button
+              onClick={() => setLocationFilter('Nunbaun Sabu')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                locationFilter === 'Nunbaun Sabu' 
+                  ? 'bg-blue-600 text-white' 
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              Nunbaun Sabu
+            </button>
+            <button
+              onClick={() => setLocationFilter('Nunbaun Delha')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                locationFilter === 'Nunbaun Delha' 
+                  ? 'bg-blue-600 text-white' 
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              Nunbaun Delha
+            </button>
+            <button
+              onClick={() => setLocationFilter('Namosain (Osmok)')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                locationFilter === 'Namosain (Osmok)' 
+                  ? 'bg-blue-600 text-white' 
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              Namosain (Osmok)
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Photo Grid */}
@@ -135,7 +244,7 @@ export default function ConditionPhotos() {
               >
                 <div className="relative h-48 bg-gray-200">
                   <img
-                    src={photo.imageUrl}
+                    src={photo.image_url || '/placeholder-river.jpg'}
                     alt={photo.title}
                     className="w-full h-full object-cover"
                     onError={(e) => {
@@ -185,7 +294,7 @@ export default function ConditionPhotos() {
               </div>
               <div className="mb-4">
                 <img
-                  src={selectedPhoto.imageUrl}
+                  src={selectedPhoto.image_url || '/placeholder-river.jpg'}
                   alt={selectedPhoto.title}
                   className="w-full h-auto rounded-lg"
                   onError={(e) => {
@@ -198,7 +307,7 @@ export default function ConditionPhotos() {
                   {selectedPhoto.status}
                 </span>
               </div>
-              <p className="text-gray-700">{selectedPhoto.description}</p>
+              <p className="text-gray-700">{selectedPhoto.description || 'No description available'}</p>
             </div>
           </div>
         </div>

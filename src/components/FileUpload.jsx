@@ -1,6 +1,8 @@
 import { useState, useRef } from 'react';
 import { parseKMLFile } from '../utils/kmlParser';
-import { uploadFile, uploadFileFromURL, saveFileMetadata } from '../services/fileStorage';
+import { uploadFile, uploadFileFromURL, saveFileMetadata, getApiUrl } from '../services/fileStorage';
+import { cacheGeoJson } from '../utils/geoJsonCache';
+import { LAYER_GROUP_OPTIONS } from '../constants/layerGroups';
 
 export default function FileUpload({ onFileUpload }) {
   const [isDragging, setIsDragging] = useState(false);
@@ -8,6 +10,9 @@ export default function FileUpload({ onFileUpload }) {
   const [error, setError] = useState(null);
   const [uploadMode, setUploadMode] = useState('file'); // 'file' or 'url'
   const [urlInput, setUrlInput] = useState('');
+  const [uploadProgress, setUploadProgress] = useState(null);
+  const [statusMessage, setStatusMessage] = useState('');
+  const [layerGroup, setLayerGroup] = useState('district');
   const fileInputRef = useRef(null);
 
   const handleFile = async (file) => {
@@ -27,18 +32,43 @@ export default function FileUpload({ onFileUpload }) {
 
     setIsLoading(true);
     setError(null);
+    setUploadProgress(0);
+    setStatusMessage('Uploading file...');
 
     try {
       // Step 1: Upload file to server
       console.log('Step 1: Uploading file to server...');
-      const serverFile = await uploadFile(file);
+      const serverFile = await uploadFile(
+        file,
+        { sourceUrl: null, layerGroup },
+        ({ percent }) => {
+          if (percent !== null && percent !== undefined) {
+            setUploadProgress(percent);
+            setStatusMessage(percent < 100 ? 'Uploading file...' : 'Upload complete. Processing file...');
+          } else {
+            setStatusMessage('Uploading file...');
+          }
+        }
+      );
       console.log('File uploaded to server:', serverFile);
+      setUploadProgress(100);
+      setStatusMessage('Processing file...');
 
       // Step 2: Parse the file to get GeoJSON
       console.log('Step 2: Parsing file to GeoJSON...');
+      setStatusMessage('Parsing file...');
       let geoJson;
       try {
-        geoJson = await parseKMLFile(file);
+        // Add timeout for file parsing (2 minutes for large files)
+        const parseTimeout = 2 * 60 * 1000; // 2 minutes
+        const parsePromise = parseKMLFile(file);
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => {
+            reject(new Error('File parsing timeout - the file may be too large or corrupted. Please try a smaller file.'));
+          }, parseTimeout);
+        });
+        
+        geoJson = await Promise.race([parsePromise, timeoutPromise]);
         console.log('File parsed successfully:', {
           fileName: file.name,
           geoJsonType: geoJson.type,
@@ -51,6 +81,7 @@ export default function FileUpload({ onFileUpload }) {
       
       // Step 3: Save lightweight metadata (without GeoJSON to avoid quota issues)
       console.log('Step 3: Saving file metadata...');
+      const normalizedLayerGroup = serverFile.layerGroup || layerGroup;
       const fileData = {
         id: serverFile.id,
         name: serverFile.name,
@@ -58,6 +89,7 @@ export default function FileUpload({ onFileUpload }) {
         visible: true,
         uploadedAt: serverFile.uploadedAt,
         sourceUrl: serverFile.sourceUrl || null,
+        layerGroup: normalizedLayerGroup,
       };
       
       // Save only lightweight metadata (GeoJSON is not stored in localStorage)
@@ -68,6 +100,7 @@ export default function FileUpload({ onFileUpload }) {
           visible: true,
           uploadedAt: serverFile.uploadedAt,
           sourceUrl: serverFile.sourceUrl || null,
+          layerGroup: normalizedLayerGroup,
         });
         console.log('Metadata saved successfully');
       } catch (metadataError) {
@@ -75,10 +108,20 @@ export default function FileUpload({ onFileUpload }) {
         // Continue even if metadata save fails
       }
       
+      // Cache GeoJSON to IndexedDB for persistence across page refreshes
+      try {
+        await cacheGeoJson(serverFile.id, geoJson, serverFile.name);
+        console.log('GeoJSON cached successfully for future use');
+      } catch (cacheError) {
+        console.warn('Warning: Failed to cache GeoJSON:', cacheError);
+        // Continue even if caching fails - the file will still work
+      }
+      
       // Step 4: Notify parent component (with GeoJSON for immediate use)
       console.log('Step 4: Notifying parent component...');
       onFileUpload(fileData);
       console.log('File upload process completed successfully');
+      setStatusMessage('Upload completed successfully.');
     } catch (err) {
       console.error('File upload error:', err);
       // Provide more user-friendly error messages
@@ -90,6 +133,10 @@ export default function FileUpload({ onFileUpload }) {
       }
       setError(errorMessage);
     } finally {
+      setTimeout(() => {
+        setUploadProgress(null);
+        setStatusMessage('');
+      }, 300);
       setIsLoading(false);
     }
   };
@@ -142,14 +189,13 @@ export default function FileUpload({ onFileUpload }) {
 
     try {
       // Step 1: Upload file from URL to server
-      const serverFile = await uploadFileFromURL(urlInput);
+      const serverFile = await uploadFileFromURL(urlInput, layerGroup);
       console.log('File uploaded from URL to server:', serverFile);
 
       // Step 2: Download and parse the file to get GeoJSON
-      // We need to fetch the file from the server to parse it
-      // Use relative URL in production, or absolute if VITE_API_URL is set
-      const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
-      const response = await fetch(`${API_BASE_URL}/files/${serverFile.id}/download`);
+      // We need to fetch the file from the server to parse it, using the same URL logic as other API calls
+      const downloadUrl = getApiUrl(`/files/${serverFile.id}/download`);
+      const response = await fetch(downloadUrl);
       if (!response.ok) {
         throw new Error('Failed to download file from server');
       }
@@ -168,6 +214,7 @@ export default function FileUpload({ onFileUpload }) {
       });
       
       // Step 3: Save lightweight metadata (without GeoJSON to avoid quota issues)
+      const normalizedLayerGroup = serverFile.layerGroup || layerGroup;
       const fileData = {
         id: serverFile.id,
         name: serverFile.name,
@@ -175,6 +222,7 @@ export default function FileUpload({ onFileUpload }) {
         visible: true,
         uploadedAt: serverFile.uploadedAt,
         sourceUrl: urlInput,
+        layerGroup: normalizedLayerGroup,
       };
       
       // Save only lightweight metadata (GeoJSON is not stored in localStorage)
@@ -184,7 +232,17 @@ export default function FileUpload({ onFileUpload }) {
         visible: true,
         uploadedAt: serverFile.uploadedAt,
         sourceUrl: urlInput,
+        layerGroup: normalizedLayerGroup,
       });
+      
+      // Cache GeoJSON to IndexedDB for persistence across page refreshes
+      try {
+        await cacheGeoJson(serverFile.id, geoJson, serverFile.name);
+        console.log('GeoJSON cached successfully for future use');
+      } catch (cacheError) {
+        console.warn('Warning: Failed to cache GeoJSON:', cacheError);
+        // Continue even if caching fails - the file will still work
+      }
       
       // Step 4: Notify parent component (with GeoJSON for immediate use)
       onFileUpload(fileData);
@@ -202,6 +260,26 @@ export default function FileUpload({ onFileUpload }) {
   return (
     <div className="p-4 bg-white rounded-lg shadow-md">
       <h3 className="text-lg font-semibold mb-4">Upload KML/KMZ File</h3>
+
+      <div className="mb-4">
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Tampilkan Melalui Toggle
+        </label>
+        <select
+          value={layerGroup}
+          onChange={(e) => setLayerGroup(e.target.value)}
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+        >
+          {LAYER_GROUP_OPTIONS.map(option => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        <p className="text-xs text-gray-500 mt-1">
+          Pilih tombol di sidebar map yang akan mengontrol visibilitas layer ini.
+        </p>
+      </div>
       
       {/* Mode Toggle */}
       <div className="flex gap-2 mb-4 border-b border-gray-200">
@@ -253,9 +331,26 @@ export default function FileUpload({ onFileUpload }) {
           />
           
           {isLoading ? (
-            <div className="flex flex-col items-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mb-4"></div>
-              <p className="text-gray-600">Processing file...</p>
+            <div className="flex flex-col items-center w-full max-w-sm mx-auto gap-3">
+              <div className="w-full">
+                <div className="flex justify-between text-xs text-gray-500 mb-1">
+                  <span>{statusMessage || 'Processing file...'}</span>
+                  {typeof uploadProgress === 'number' && (
+                    <span>{Math.round(uploadProgress)}%</span>
+                  )}
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+                  <div
+                    className="bg-blue-500 h-3 transition-all duration-300 ease-out"
+                    style={{ width: `${Math.min(uploadProgress ?? 100, 100)}%` }}
+                  ></div>
+                </div>
+              </div>
+              <p className="text-sm text-gray-600 text-center">
+                {uploadProgress !== null && uploadProgress < 100
+                  ? 'Please keep this tab open while the file uploads.'
+                  : statusMessage || 'Finishing up...'}
+              </p>
             </div>
           ) : (
             <>

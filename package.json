@@ -6,6 +6,8 @@
     "dev": "vite",
     "dev:server": "node server/index.js",
     "dev:all": "concurrently \"npm run dev:server\" \"npm run dev\"",
+    "tunnel": "cloudflared tunnel --url http://localhost:3001",
+    "tunnel:run": "cloudflared tunnel run gis-app",
     "build": "vite build",
     "build:prod": "npm run build && echo 'Frontend built successfully. Run npm start to start the server.'",
     "preview": "vite preview",
@@ -13,15 +15,19 @@
     "start:prod": "npm run build && NODE_ENV=production node server/index.js"
   },
   "dependencies": {
+    "@vercel/kv": "^3.0.0",
     "busboy": "^1.6.0",
     "cors": "^2.8.5",
     "express": "^4.18.2",
     "jszip": "^3.10.1",
     "leaflet": "^1.9.4",
     "multer": "^1.4.5-lts.1",
+    "mysql2": "^3.15.3",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-leaflet": "^4.2.1",
+    "react-quill": "^2.0.0",
+    "sharp": "^0.34.5",
     "togeojson": "^0.16.0"
   },
   "devDependencies": {

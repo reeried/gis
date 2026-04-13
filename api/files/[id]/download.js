@@ -1,24 +1,12 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { getMetadata } from '../../storage.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const UPLOADS_DIR = '/tmp/uploads';
-const METADATA_FILE = path.join(UPLOADS_DIR, 'metadata.json');
-
-function getMetadata() {
-  try {
-    if (fs.existsSync(METADATA_FILE)) {
-      const data = fs.readFileSync(METADATA_FILE, 'utf8');
-      return JSON.parse(data);
-    }
-  } catch (error) {
-    console.error('Error reading metadata:', error);
-  }
-  return {};
-}
 
 export default async function handler(req, res) {
   // Set CORS headers
@@ -36,7 +24,7 @@ export default async function handler(req, res) {
 
   try {
     const { id } = req.query;
-    const metadata = getMetadata();
+    const metadata = await getMetadata();
     const file = metadata[id];
     
     if (!file) {

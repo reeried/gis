@@ -36,7 +36,7 @@ export default function Login({ onLoginSuccess }) {
             </svg>
           </div>
           <h2 className="text-2xl font-bold text-gray-800">Admin Login</h2>
-          <p className="text-gray-600 mt-2">Sistem Informasi Tata Ruang</p>
+          <p className="text-gray-600 mt-2">Database Sungai Kota Kupang</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">

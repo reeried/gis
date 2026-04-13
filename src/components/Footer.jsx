@@ -3,7 +3,7 @@ export default function Footer() {
     <footer className="bg-gray-800 text-white py-6 border-t border-gray-700">
       <div className="w-full flex justify-center px-4">
         <div className="w-full max-w-[1200px]">
-        <div className="grid grid-cols-3 gap-8">
+        <div className="grid grid-cols-2 gap-8">
           {/* Left: Logo and Title */}
           <div className="flex items-center gap-3">
             <div className="flex items-center justify-center w-12 h-12 bg-blue-600 rounded-lg">
@@ -13,16 +13,8 @@ export default function Footer() {
             </div>
             <div>
               <div className="font-semibold text-sm">Gistaru Kupang</div>
-              <div className="text-xs text-gray-400">Sistem Informasi Tata Ruang Kota Kupang</div>
+              <div className="text-xs text-gray-400">Database Sungai Kota Kupang</div>
             </div>
-          </div>
-
-          {/* Middle: Contact Info */}
-          <div>
-            <h3 className="font-semibold text-sm mb-2">Kontak Kami</h3>
-            <p className="text-xs text-gray-300">
-              Alamat: Jl. [Alamat Lengkap], Kota Kupang, NTT
-            </p>
           </div>
 
           {/* Right: Privacy and Visitor Count */}
