@@ -1,22 +1,24 @@
 {
   "version": 2,
-  "buildCommand": "npm run build",
-  "outputDirectory": "dist",
-  "installCommand": "npm install",
-  "framework": "vite",
+  "builds": [
+    {
+      "src": "package.json",
+      "use": "@vercel/static-build",
+      "config": { "distDir": "dist" }
+    },
+    {
+      "src": "server/index.js",
+      "use": "@vercel/node"
+    }
+  ],
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "/server/index.js"
-    }
-  ],
-  "functions": {
-    "api/files/upload.js": {
-      "maxDuration": 60
+      "destination": "server/index.js"
     },
-    "api/files/upload-from-url.js": {
-      "maxDuration": 60
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
-  }
+  ]
 }
-
